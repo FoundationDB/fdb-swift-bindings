@@ -120,7 +120,7 @@ public final class InMemoryTransaction: Transaction {
 	will return the end index of the list.
 	*/
 	private func keyMatching(selector: KeySelector, from keys: [DatabaseValue]) -> Int {
-		var index = keys.firstIndex { selector.orEqual == 0 ? $0 >= selector.anchor : $0 > selector.anchor } ?? keys.endIndex
+		var index = keys.firstIndex (where: { selector.orEqual == 0 ? $0 >= selector.anchor : $0 > selector.anchor }) ?? keys.endIndex
 		index += Int(selector.offset) - 1
 		index = min(max(index, keys.startIndex - 1), keys.endIndex)
 		return index

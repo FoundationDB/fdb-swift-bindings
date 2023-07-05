@@ -9,7 +9,7 @@ let package = Package(
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-nio", from: "1.2.0"),
-    .package(url: "https://github.com/FoundationDB/fdb-swift-c-packaging", .branch("master"))
+    .package(url: "https://github.com/FoundationDB/fdb-swift-c-packaging", .branch("main"))
   ],
   targets: [
     .target(name: "FoundationDB", dependencies: [.product(name: "NIO", package: "swift-nio"), "CFoundationDB"]),

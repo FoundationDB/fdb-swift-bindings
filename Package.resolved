@@ -5,7 +5,7 @@
         "package": "libfdb-swift",
         "repositoryURL": "https://github.com/FoundationDB/fdb-swift-c-packaging",
         "state": {
-          "branch": "master",
+          "branch": "main",
           "revision": "46a7f29471ae73aa8f21fb1839703fc62420da23",
           "version": null
         }
@@ -15,8 +15,8 @@
         "repositoryURL": "https://github.com/apple/swift-nio",
         "state": {
           "branch": null,
-          "revision": "8da5c5a4e6c5084c296b9f39dc54f00be146e0fa",
-          "version": "1.14.2"
+          "revision": "546610d52b19be3e19935e0880bb06b9c03f5cef",
+          "version": "1.14.4"
         }
       },
       {
