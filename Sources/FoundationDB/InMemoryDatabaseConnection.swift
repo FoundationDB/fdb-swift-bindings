@@ -104,20 +104,20 @@ public final class InMemoryDatabaseConnection: DatabaseConnection {
 	*/
 	public func commit(transaction: Transaction) -> EventLoopFuture<()> {
 		guard let memoryTransaction = transaction as? InMemoryTransaction else {
-			return eventLoop.newFailedFuture(error: ClusterDatabaseConnection.FdbApiError(1000))
+			return eventLoop.makeFailedFuture( ClusterDatabaseConnection.FdbApiError(1000))
 		}
 		if memoryTransaction.committed {
-			return eventLoop.newFailedFuture(error: ClusterDatabaseConnection.FdbApiError(2017))
+			return eventLoop.makeFailedFuture( ClusterDatabaseConnection.FdbApiError(2017))
 		}
 		if memoryTransaction.cancelled {
-			return eventLoop.newFailedFuture(error: ClusterDatabaseConnection.FdbApiError(1025))
+			return eventLoop.makeFailedFuture( ClusterDatabaseConnection.FdbApiError(1025))
 		}
 		for (version, changes) in changeHistory {
 			if version <= memoryTransaction.readVersion { continue }
 			for changedRange in changes {
 				for readRange in memoryTransaction.readConflicts {
 					if changedRange.contains(readRange.lowerBound) || (changedRange.contains(readRange.lowerBound) && readRange.upperBound != changedRange.lowerBound) {
-						return eventLoop.newFailedFuture(error: ClusterDatabaseConnection.FdbApiError(1020))
+						return eventLoop.makeFailedFuture( ClusterDatabaseConnection.FdbApiError(1020))
 					}
 				}
 			}
@@ -129,6 +129,6 @@ public final class InMemoryDatabaseConnection: DatabaseConnection {
 		self.changeHistory.append((self.currentVersion, memoryTransaction.writeConflicts))
 		memoryTransaction.committed = true
 		memoryTransaction.committedVersion = self.currentVersion
-		return eventLoop.newSucceededFuture(result: ())
+		return eventLoop.makeSucceededFuture(())
 	}
 }

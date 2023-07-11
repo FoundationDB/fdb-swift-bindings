@@ -47,7 +47,7 @@ class DatabaseConnectionTests: XCTestCase {
 				(transaction: Transaction) -> Int in
 				transaction.store(key: "Test Key 1", value: "Test Value 1")
 				return 5
-				}.then { value -> EventLoopFuture<Void> in
+				}.flatMap { value -> EventLoopFuture<Void> in
 					XCTAssertEqual(value, 5)
 					let transaction = self.connection.startTransaction()
 					transaction.read("Test Key 1")
@@ -66,8 +66,8 @@ class DatabaseConnectionTests: XCTestCase {
 			self.connection.transaction {
 				(transaction: Transaction) -> EventLoopFuture<Int> in
 				transaction.store(key: "Test Key 1", value: "Test Value 1")
-				return self.eventLoop.newSucceededFuture(result: 5)
-				}.then { value -> EventLoopFuture<Void> in
+				return self.eventLoop.makeSucceededFuture(5)
+				}.flatMap { value -> EventLoopFuture<Void> in
 					XCTAssertEqual(value, 5)
 					let transaction = self.connection.startTransaction()
 					transaction.read("Test Key 1")
@@ -81,14 +81,14 @@ class DatabaseConnectionTests: XCTestCase {
 		self.runLoop(eventLoop) {
 			let key: DatabaseValue = "Test Key"
 			self.connection.transaction { $0.store(key: key, value: "Test Value 1") }
-				.then { () -> EventLoopFuture<Void> in
+				.flatMap { () -> EventLoopFuture<Void> in
 					var attemptNumber = 0
 					let longTransaction: EventLoopFuture<Void> = self.connection.transaction { transaction -> EventLoopFuture<Void> in
 						attemptNumber += 1
-						return transaction.read(key).then { value in
-							var signal = self.eventLoop.newSucceededFuture(result: Void())
+						return transaction.read(key).flatMap { value in
+							var signal = self.eventLoop.makeSucceededFuture(Void())
 							if attemptNumber == 1 {
-								signal = signal.then { _ in self.connection.transaction {
+								signal = signal.flatMap { _ in self.connection.transaction {
 									$0.store(key: key, value: "Test Value 2")
 									} }
 							}
@@ -101,7 +101,7 @@ class DatabaseConnectionTests: XCTestCase {
 						}
 					}
 					
-					return longTransaction.then { _ in
+					return longTransaction.flatMap { _ in
 						self.connection.transaction { $0.read(key) }.map {
 							XCTAssertEqual($0, "Test Value 3")
 						}
@@ -117,12 +117,12 @@ class DatabaseConnectionTests: XCTestCase {
 				throw TestError.test
 			}
 			
-			transaction.mapIfError {
+			transaction.recover {
 				switch($0) {
 				case is TestError: break
 				default: XCTFail("Unexpected error: \($0)")
 				}
-				}.then { _ in
+				}.flatMap { _ in
 					self.connection.transaction { $0.read("Test Key") }.map {
 						XCTAssertNil($0)
 					}

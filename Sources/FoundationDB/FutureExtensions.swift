@@ -23,29 +23,29 @@ import Foundation
 import NIO
 
 extension EventLoopFuture {
-	internal static func retrying(eventLoop: EventLoop, onError errorFilter: @escaping (Error) -> EventLoopFuture<Void>, retryBlock: @escaping () throws -> EventLoopFuture<T>) -> EventLoopFuture<T> {
+	internal static func retrying<T>(eventLoop: EventLoop, onError errorFilter: @escaping (Error) -> EventLoopFuture<Void>, retryBlock: @escaping () throws -> EventLoopFuture<T>) -> EventLoopFuture<T> {
 		return eventLoop.submit {
 			try retryBlock()
-			}.then { return $0 }
-			.thenIfError { error in
+			}.flatMap { return $0 }
+			.flatMapError { error in
 				let t1: EventLoopFuture<Void> = errorFilter(error)
-				let t2: EventLoopFuture<T> = t1.then { _ in self.retrying(eventLoop: eventLoop, onError: errorFilter, retryBlock: retryBlock) }
+				let t2: EventLoopFuture<T> = t1.flatMap { _ in self.retrying(eventLoop: eventLoop, onError: errorFilter, retryBlock: retryBlock) }
 				return t2
 		}
 	}
 	
-	public func thenThrowingFuture<U>(_ callback: @escaping (T) throws -> EventLoopFuture<U>) -> EventLoopFuture<U> {
-		return self.then {
+	public func thenThrowingFuture<U>(_ callback: @escaping (Any) throws -> EventLoopFuture<U>) -> EventLoopFuture<U> {
+		return self.flatMap {
 			do {
 				return try callback($0)
 			}
 			catch {
-				return self.eventLoop.newFailedFuture(error: error)
+				return self.eventLoop.makeFailedFuture(error)
 			}
 		}
 	}
 	
-	private static func check(future: OpaquePointer, eventLoop: EventLoop, promise: EventLoopPromise<T>, fetch: @escaping (OpaquePointer) throws -> T) {
+	private static func check<T>(future: OpaquePointer, eventLoop: EventLoop, promise: EventLoopPromise<T>, fetch: @escaping (OpaquePointer) throws -> T) {
 		if(fdb_future_is_ready(future) == 0) {
 			eventLoop.execute {
 				check(future: future, eventLoop: eventLoop, promise: promise, fetch: fetch)
@@ -60,21 +60,21 @@ extension EventLoopFuture {
 		}
 		catch {
 			fdb_future_destroy(future)
-			return promise.fail(error: error)
+			return promise.fail(error)
 		}
 		
 		fdb_future_destroy(future)
-		promise.succeed(result: result)
+		promise.succeed(result)
 	}
 	
-	internal static func fromFoundationFuture(eventLoop: EventLoop, future: OpaquePointer, fetch: @escaping (OpaquePointer) throws -> T) -> EventLoopFuture<T> {
-		
-		let promise: EventLoopPromise<T> = eventLoop.newPromise()
+	internal static func fromFoundationFuture<T>(eventLoop: EventLoop, future: OpaquePointer, fetch: @escaping (OpaquePointer) throws -> T) -> EventLoopFuture<T> {
+
+		let promise: EventLoopPromise<T> = eventLoop.makePromise()
 		self.check(future: future, eventLoop: eventLoop, promise: promise, fetch: fetch)
 		return promise.futureResult
 	}
 	
-	internal static func fromFoundationFuture(eventLoop: EventLoop, future: OpaquePointer, fetch: @escaping (OpaquePointer, UnsafeMutablePointer<T?>) -> fdb_error_t) -> EventLoopFuture<T> {
+	internal static func fromFoundationFuture<T>(eventLoop: EventLoop, future: OpaquePointer, fetch: @escaping (OpaquePointer, UnsafeMutablePointer<T?>) -> fdb_error_t) -> EventLoopFuture<T> {
 		return self.fromFoundationFuture(eventLoop: eventLoop, future: future) { readyFuture in
 			var result: T? = nil
 			try ClusterDatabaseConnection.FdbApiError.wrapApiError(fetch(readyFuture, &result))
@@ -82,7 +82,7 @@ extension EventLoopFuture {
 		}
 	}
 	
-	internal static func fromFoundationFuture(eventLoop: EventLoop, future: OpaquePointer, default: T, fetch: @escaping (OpaquePointer, UnsafeMutablePointer<T>) -> fdb_error_t) -> EventLoopFuture<T> {
+	internal static func fromFoundationFuture<T>(eventLoop: EventLoop, future: OpaquePointer, default: T, fetch: @escaping (OpaquePointer, UnsafeMutablePointer<T>) -> fdb_error_t) -> EventLoopFuture<T> {
 		return self.fromFoundationFuture(eventLoop: eventLoop, future: future) {
 			future -> T in
 			var result: T = `default`
@@ -92,14 +92,14 @@ extension EventLoopFuture {
 	}
 	
 	public static func accumulating<T>(futures: [EventLoopFuture<T>], eventLoop: EventLoop) -> EventLoopFuture<[T]> {
-		return accumulating(futures: futures, base: eventLoop.newSucceededFuture(result: []), offset: 0)
+		return accumulating(futures: futures, base: eventLoop.makeSucceededFuture([]), offset: 0)
 	}
 	
 	private static func accumulating<T>(futures: [EventLoopFuture<T>], base: EventLoopFuture<[T]>, offset: Int) -> EventLoopFuture<[T]> {
 		if(offset == futures.count) {
 			return base;
 		}
-		return accumulating(futures: futures, base: base.then { initial in
+		return accumulating(futures: futures, base: base.flatMap { initial in
 			futures[offset].map {
 				var result = initial
 				result.append($0)
@@ -109,8 +109,8 @@ extension EventLoopFuture {
 	}
 }
 
-extension EventLoopFuture where T == Void {
-	internal static func fromFoundationFuture(eventLoop: EventLoop, future: OpaquePointer) -> EventLoopFuture<T> {
+extension EventLoopFuture{
+	internal static func fromFoundationFuture(eventLoop: EventLoop, future: OpaquePointer) -> EventLoopFuture<Void> {
 		return self.fromFoundationFuture(eventLoop: eventLoop, future: future) { _ in return Void() }
 	}
 }

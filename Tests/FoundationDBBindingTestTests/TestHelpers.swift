@@ -61,7 +61,7 @@ extension EventLoopFuture {
 	*/
 	public func `catch`(_ testCase: XCTestCase, file: String = #file, line: Int = #line) {
 		_ = self.map { _ in Void() }
-			.mapIfError {
+			.recover {
 				testCase.recordFailure(withDescription: "\($0)", inFile: file, atLine: line, expected: true)
 		}
 	}

@@ -245,7 +245,7 @@ class InMemoryTransactionTests: XCTestCase {
 					let value = DatabaseValue(string: String(format: "Range Value %03i", index))
 					transaction.store(key: key, value: value)
 				}
-				}.then {
+				}.flatMap {
 					return self.transaction.readSelectors(from: KeySelector(greaterThan: "Range Key"), to: KeySelector(greaterThan: "T"), limit: nil, mode: .iterator, snapshot: false, reverse: false).map {
 						let results = $0.rows
 						XCTAssertEqual(results.count, 500)
@@ -266,7 +266,7 @@ class InMemoryTransactionTests: XCTestCase {
 					let value = DatabaseValue(string: String(format: "Range Value %03i", index))
 					transaction.store(key: key, value: value)
 				}
-				}.then {
+				}.flatMap {
 					self.transaction.readSelectors(from: KeySelector(greaterThan: "Range Key"), to: KeySelector(greaterThan: "T"), limit: 5, mode: .iterator, snapshot: false, reverse: false).map {
 						let results = $0.rows
 						XCTAssertEqual(results.count, 5)
@@ -379,7 +379,7 @@ class InMemoryTransactionTests: XCTestCase {
 	
 	func testGetCommittedVersionGetsVersion() throws {
 		self.runLoop(eventLoop) {
-			self.connection.commit(transaction: self.transaction).then {
+			self.connection.commit(transaction: self.transaction).flatMap {
 				self.transaction.getCommittedVersion().map {
 					XCTAssertEqual($0, 1)
 				}
@@ -411,7 +411,7 @@ class InMemoryTransactionTests: XCTestCase {
 			_ = self.transaction.read("Test Key")
 			self.transaction.store(key: "Test Key", value: "Test Value")
 			self.transaction.attemptRetry(error: TestError.test).map { XCTFail() }
-				.mapIfError {
+				.recover {
 					switch($0) {
 					case is TestError: break
 					default: XCTFail("Unexpected error: \($0)")
@@ -440,12 +440,12 @@ class InMemoryTransactionTests: XCTestCase {
 	
 	func testPerformAtomicOperationWithBitwiseAndPerformsOperation() throws {
 		self.runLoop(eventLoop) {
-			self.connection.transaction { $0.store(key: "Test Key", value: DatabaseValue(Data(bytes: [0xC3]))) }.then { _ -> EventLoopFuture<Void> in
-				self.transaction.performAtomicOperation(operation: .bitAnd, key: "Test Key", value: DatabaseValue(Data(bytes: [0xA9])))
-				return self.connection.commit(transaction: self.transaction).then {
+			self.connection.transaction { $0.store(key: "Test Key", value: DatabaseValue(Data([0xC3]))) }.flatMap { _ -> EventLoopFuture<Void> in
+				self.transaction.performAtomicOperation(operation: .bitAnd, key: "Test Key", value: DatabaseValue(Data([0xA9])))
+				return self.connection.commit(transaction: self.transaction).flatMap {
 					self.connection.transaction {
 						$0.read("Test Key").map {
-							XCTAssertEqual($0, DatabaseValue(Data(bytes: [0x81])))
+							XCTAssertEqual($0, DatabaseValue(Data([0x81])))
 						}
 					}
 				}
@@ -457,9 +457,9 @@ class InMemoryTransactionTests: XCTestCase {
 		self.runLoop(eventLoop) {
 			let future = self.transaction.getVersionStamp()
 			self.transaction.store(key: "Test Key", value: "Test Value")
-			self.connection.commit(transaction: self.transaction).then {
+			self.connection.commit(transaction: self.transaction).flatMap {
 				future.map {
-					XCTAssertEqual($0.data, Data(bytes: [0,0,0,0,0,0,0,1,0,0]))
+					XCTAssertEqual($0.data, Data([0,0,0,0,0,0,0,1,0,0]))
 				}
 				}.catch(self)
 		}
@@ -472,7 +472,7 @@ class InMemoryTransactionTests: XCTestCase {
 			self.transaction.store(key: "Test Key", value: "Test Value")
 			_ = transaction2.read("Test Key")
 			transaction2.store(key: "Test Key 2", value: "Test Value 2")
-			self.connection.commit(transaction: self.transaction).then {
+			self.connection.commit(transaction: self.transaction).flatMap {
 				self.connection.commit(transaction: transaction2)
 				}.catch(self)
 		}

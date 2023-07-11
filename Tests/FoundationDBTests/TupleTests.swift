@@ -88,25 +88,25 @@ class TupleTests: XCTestCase {
 	}
 	
 	func testInitializationWithDataItemPutsDataItemInTuple() {
-		let tuple = Tuple(Data(bytes: [0x10, 0x01, 0x19]))
+		let tuple = Tuple(Data([0x10, 0x01, 0x19]))
 		XCTAssertEqual(tuple.count, 1)
-		XCTAssertEqual(tuple.data, Data(bytes: [0x01, 0x10, 0x01, 0x19, 0x00]))
+		XCTAssertEqual(tuple.data, Data([0x01, 0x10, 0x01, 0x19, 0x00]))
 	}
 	
 	func testInitializationWithStringPutsStringInTuple() {
 		let tuple = Tuple("Test Value")
 		XCTAssertEqual(tuple.count, 1)
-		XCTAssertEqual(tuple.data, Data(bytes: [0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x56, 0x61, 0x6C, 0x75, 0x65, 0x00]))
+		XCTAssertEqual(tuple.data, Data([0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x56, 0x61, 0x6C, 0x75, 0x65, 0x00]))
 	}
 	
 	func testInitializationWithMultipleEntriesAddsEntries() {
 		let tuple = Tuple("Test Value", 45)
 		XCTAssertEqual(tuple.count, 2)
-		XCTAssertEqual(tuple.data, Data(bytes: [0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x56, 0x61, 0x6C, 0x75, 0x65, 0x00, 0x15, 0x2D]))
+		XCTAssertEqual(tuple.data, Data([0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x56, 0x61, 0x6C, 0x75, 0x65, 0x00, 0x15, 0x2D]))
 	}
 	
 	func testInitializationWithRawDataReadsAllFields() throws {
-		let tuple = Tuple(rawData: Data(bytes: [
+		let tuple = Tuple(rawData: Data([
 			0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x56, 0x61, 0x6C, 0x75, 0x65, 0x00,
 			0x01, 0x16, 0x05, 0xAB, 0x00,
 			0x00,
@@ -124,7 +124,7 @@ class TupleTests: XCTestCase {
 		
 		XCTAssertEqual(tuple.count, 12)
 		XCTAssertEqual(try tuple.read(at: 0) as String, "Test Value")
-		XCTAssertEqual(try tuple.read(at: 1) as Data, Data(bytes: [0x16, 0x05, 0xAB]))
+		XCTAssertEqual(try tuple.read(at: 1) as Data, Data([0x16, 0x05, 0xAB]))
 		XCTAssertEqual(try tuple.read(at: 3) as Bool, false)
 		XCTAssertEqual(try tuple.read(at: 4) as Int, 9817234)
 		#if os(OSX)
@@ -141,13 +141,13 @@ class TupleTests: XCTestCase {
 	}
 	
 	func testInitializationWithRawDataWithSingleStringReadsString() {
-		let tuple = Tuple(rawData: Data(bytes: [0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x4B, 0x65, 0x79, 0x00]))
+		let tuple = Tuple(rawData: Data([0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x4B, 0x65, 0x79, 0x00]))
 		XCTAssertEqual(tuple.count, 1)
 		XCTAssertEqual(try tuple.read(at: 0) as String, "Test Key")
 	}
 	
 	func testInitializationWithRawDataWithStringAndRangeEndByteIgnoresByte() {
-		let tuple = Tuple(rawData: Data(bytes: [
+		let tuple = Tuple(rawData: Data([
 			0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x4B, 0x65, 0x79, 0x00,
 			0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x56, 0x61, 0x6C, 0x75, 0x65, 0x00,
 			0xFF]))
@@ -158,7 +158,7 @@ class TupleTests: XCTestCase {
 	}
 	
 	func testInitializationWithRawDataWithIntegerAndRangeEndByteIgnoresByte() {
-		let tuple = Tuple(rawData: Data(bytes: [
+		let tuple = Tuple(rawData: Data([
 			0x17, 0x95, 0xCC, 0x92,
 			0xFF
 			]))
@@ -169,92 +169,92 @@ class TupleTests: XCTestCase {
 	func testAppendStringAddsStringBytes() {
 		var tuple = Tuple()
 		tuple.append("Test Key")
-		XCTAssertEqual(tuple.data, Data(bytes: [0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x4B, 0x65, 0x79, 0x00]))
+		XCTAssertEqual(tuple.data, Data([0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x4B, 0x65, 0x79, 0x00]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendStringWithUnicodeCharactersAddsUTF8Bytes() {
 		var tuple = Tuple()
 		tuple.append("Niño")
-		XCTAssertEqual(tuple.data, Data(bytes: [0x02, 0x4E, 0x69, 0xC3, 0xB1, 0x6F, 0x00]))
+		XCTAssertEqual(tuple.data, Data([0x02, 0x4E, 0x69, 0xC3, 0xB1, 0x6F, 0x00]))
 	}
 	
 	func testAppendStringWithNullByteInStringEscapesNullByte() {
 		var tuple = Tuple()
 		tuple.append("Test \u{0}Key")
-		XCTAssertEqual(tuple.data, Data(bytes: [0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x00, 0xFF, 0x4B, 0x65, 0x79, 0x00]))
+		XCTAssertEqual(tuple.data, Data([0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x00, 0xFF, 0x4B, 0x65, 0x79, 0x00]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendNullAddsNullByte() {
 		var tuple = Tuple()
 		tuple.appendNullByte()
-		XCTAssertEqual(tuple.data, Data(bytes: [0x00]))
+		XCTAssertEqual(tuple.data, Data([0x00]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendingNullAddsNullByte() {
 		let tuple = Tuple().appendingNullByte()
-		XCTAssertEqual(tuple.data, Data(bytes: [0x00]))
+		XCTAssertEqual(tuple.data, Data([0x00]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendDataAppendsBytes() {
 		var tuple = Tuple()
-		tuple.append(Data(bytes: [0x10, 0x01, 0x19]))
-		XCTAssertEqual(tuple.data, Data(bytes: [0x01, 0x10, 0x01, 0x19, 0x00]))
+		tuple.append(Data([0x10, 0x01, 0x19]))
+		XCTAssertEqual(tuple.data, Data([0x01, 0x10, 0x01, 0x19, 0x00]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendDataWithNullByteInDataEscapesNullByte() {
 		var tuple = Tuple()
-		tuple.append(Data(bytes: [0x10, 0x00, 0x19]))
-		XCTAssertEqual(tuple.data, Data(bytes: [0x01, 0x10, 0x00, 0xFF, 0x19, 0x00]))
+		tuple.append(Data([0x10, 0x00, 0x19]))
+		XCTAssertEqual(tuple.data, Data([0x01, 0x10, 0x00, 0xFF, 0x19, 0x00]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendIntegerAppendsBytes() {
 		var tuple = Tuple()
 		tuple.append(8174509123489079081)
-		XCTAssertEqual(tuple.data, Data(bytes: [0x1C, 0x71, 0x71, 0xB0, 0xBC, 0xC6, 0xC1, 0x9F, 0x29]))
+		XCTAssertEqual(tuple.data, Data([0x1C, 0x71, 0x71, 0xB0, 0xBC, 0xC6, 0xC1, 0x9F, 0x29]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendIntegerWithSmallNumberAppendsNecessaryBytes() {
 		var tuple = Tuple()
 		tuple.append(1451)
-		XCTAssertEqual(tuple.data, Data(bytes: [0x16, 0x05, 0xAB]))
+		XCTAssertEqual(tuple.data, Data([0x16, 0x05, 0xAB]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendIntegerWithZeroAppendsHeaderByte() {
 		var tuple = Tuple()
 		tuple.append(0)
-		XCTAssertEqual(tuple.data, Data(bytes: [0x14]))
+		XCTAssertEqual(tuple.data, Data([0x14]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendIntegerWithNegativeIntegerAppendsBytes() {
 		var tuple = Tuple()
 		tuple.append(-89127348907)
-		XCTAssertEqual(tuple.data, Data(bytes: [0x0F, 0xEB, 0x3F, 0x98, 0x95, 0x54]))
+		XCTAssertEqual(tuple.data, Data([0x0F, 0xEB, 0x3F, 0x98, 0x95, 0x54]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendIntegerWith64BitIntegerAppendsBytes() {
 		var tuple = Tuple()
 		tuple.append(14732181464251135039 as UInt64)
-		XCTAssertEqual(tuple.data, Data(bytes: [0x1C, 0xCC, 0x73, 0x38, 0xFC, 0xBF, 0x48, 0x74, 0x3F]))
+		XCTAssertEqual(tuple.data, Data([0x1C, 0xCC, 0x73, 0x38, 0xFC, 0xBF, 0x48, 0x74, 0x3F]))
 		XCTAssertEqual(tuple.count, 1)
 	}
 	
 	func testAppendingMultipleTimesAddsAllValues() {
 		var tuple = Tuple()
 		tuple.append("Test Value")
-		tuple.append(Data(bytes: [0x16, 0x05, 0xAB]))
+		tuple.append(Data([0x16, 0x05, 0xAB]))
 		tuple.appendNullByte()
 		tuple.append(9817234)
-		XCTAssertEqual(tuple.data, Data(bytes: [
+		XCTAssertEqual(tuple.data, Data([
 			
 			0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x56, 0x61, 0x6C, 0x75, 0x65, 0x00,
 			0x01, 0x16, 0x05, 0xAB, 0x00,
@@ -288,7 +288,7 @@ class TupleTests: XCTestCase {
 	}
 	
 	func testReadWithStringWithInvalidUTF8DataThrowsError() throws {
-		let tuple = Tuple(rawData: Data(bytes: [0x02, 0x54, 0xC0, 0x65, 0x73, 0x74, 0x20, 0x4B, 0x65, 0x79, 0x00]))
+		let tuple = Tuple(rawData: Data([0x02, 0x54, 0xC0, 0x65, 0x73, 0x74, 0x20, 0x4B, 0x65, 0x79, 0x00]))
 		
 		XCTAssertThrowsError(try tuple.read(at: 0) as String) {
 			error in
@@ -349,7 +349,7 @@ class TupleTests: XCTestCase {
 	}
 	
 	func testParsingComplexNestedTuple() throws {
-		let data = Data(bytes: [
+		let data = Data([
 			0x02, 0x50, 0x55, 0x53, 0x48, 0x00, 0x05, 0x21, 0x45, 0xF0, 0x6D,
 			0x8A, 0x84, 0xD9, 0xD1, 0x5B, 0x05, 0x00, 0x01, 0x22, 0x0D, 0x23,
 			0x03, 0x52, 0x59, 0x4F, 0x9F, 0xFB, 0x82, 0xF0, 0xA0, 0x2D, 0x4C,
@@ -370,7 +370,7 @@ class TupleTests: XCTestCase {
 	}
 	
 	func testChildRangeGetsRangeContainingChildren() {
-		let data = Data(bytes: [
+		let data = Data([
 			0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x4B, 0x65, 0x79, 0x00,
 			0x02, 0x54, 0x65, 0x73, 0x74, 0x20, 0x56, 0x61, 0x6C, 0x75, 0x65, 0x00]
 		)
@@ -453,9 +453,9 @@ class TupleTests: XCTestCase {
 	}
 	
 	func testIncrementLastEntryWithDataPerformsByteIncrement() {
-		var key = Tuple("Test", "Key", Data(bytes: [1, 2, 3]))
+		var key = Tuple("Test", "Key", Data([1, 2, 3]))
 		key.incrementLastEntry()
-		XCTAssertEqual(key, Tuple("Test", "Key", Data(bytes: [1, 2, 4])))
+		XCTAssertEqual(key, Tuple("Test", "Key", Data([1, 2, 4])))
 	}
 	
 	func testIncrementLastEntryWithNullByteDoesNothing() {
@@ -487,31 +487,31 @@ class TupleTests: XCTestCase {
 		key4.append(-5)
 		XCTAssertEqual(key4.description, "(Test, 5, -5)")
 		var key5 = key1
-		key5.append(Data(bytes: [1,2,3,4]))
+		key5.append(Data([1,2,3,4]))
 		XCTAssertEqual(key5.description, "(Test, 5, 4 bytes)")
 	}
 	
 	func testTuplesWithSameDataAreEqual() {
-		let tuple1 = Tuple(Data(bytes: [0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
-		let tuple2 = Tuple(Data(bytes: [0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
+		let tuple1 = Tuple(Data([0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
+		let tuple2 = Tuple(Data([0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
 		XCTAssertEqual(tuple1, tuple2)
 	}
 	
 	func testTuplesWithDifferentDataAreNotEqual() {
-		let tuple1 = Tuple(Data(bytes: [0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
-		let tuple2 = Tuple(Data(bytes: [0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x32]))
+		let tuple1 = Tuple(Data([0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
+		let tuple2 = Tuple(Data([0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x32]))
 		XCTAssertNotEqual(tuple1, tuple2)
 	}
 	
 	func testTuplesWithSameDataHaveSameHash() {
-		let tuple1 = Tuple(Data(bytes: [0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
-		let tuple2 = Tuple(Data(bytes: [0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
+		let tuple1 = Tuple(Data([0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
+		let tuple2 = Tuple(Data([0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
 		XCTAssertEqual(tuple1.hashValue, tuple2.hashValue)
 	}
 	
 	func testTuplesWithDifferentDataHaveDifferentHash() {
-		let tuple1 = Tuple(Data(bytes: [0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
-		let tuple2 = Tuple(Data(bytes: [0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x32]))
+		let tuple1 = Tuple(Data([0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x31]))
+		let tuple2 = Tuple(Data([0x54, 0x65, 0x73, 0x74, 0x4B, 0x65, 0x79, 0x32]))
 		XCTAssertNotEqual(tuple1.hashValue, tuple2.hashValue)
 	}
 	

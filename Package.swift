@@ -8,8 +8,8 @@ let package = Package(
     .executable(name: "FoundationDBBindingTestRunner", targets: ["FoundationDBBindingTestRunner"]),
   ],
   dependencies: [
-    .package(url: "https://github.com/apple/swift-nio", from: "1.2.0"),
-    .package(url: "https://github.com/FoundationDB/fdb-swift-c-packaging", .branch("main"))
+    .package(url: "https://github.com/apple/swift-nio", from: "2.44.0"),
+    .package(url: "git@github.com:FoundationDB/fdb-swift-c-packaging.git", .branch("main"))
   ],
   targets: [
     .target(name: "FoundationDB", dependencies: [.product(name: "NIO", package: "swift-nio"), "CFoundationDB"]),

@@ -104,12 +104,12 @@ public struct DatabaseValue: Equatable, Hashable, Comparable, ExpressibleByStrin
         return true
 	}
 	
-	/**
-	This method gets the hash code for this tuple.
-	*/
-	public var hashValue: Int {
-		return data.hashValue
-	}
+//	/**
+//	This method gets the hash code for this tuple.
+//	*/
+//	public var hashValue: Int {
+//		return data.hashValue
+//	}
 	
 	/**
 	This method increments the last byte in this data.

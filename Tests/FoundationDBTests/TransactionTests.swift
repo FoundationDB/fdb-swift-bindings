@@ -77,7 +77,7 @@ class TransactionTests: XCTestCase {
 	func testAddReadConflictOnKeyAddsConflict() throws {
 		self.runLoop(eventLoop) {
 			let transaction2 = self.connection.startTransaction()
-			self.transaction.getReadVersion().then { _ -> EventLoopFuture<Void> in
+			self.transaction.getReadVersion().flatMap { _ -> EventLoopFuture<Void> in
 				self.transaction.addReadConflict(key: "Test Key 1")
 				self.transaction.store(key: "Test Key 2", value: "Test Value 2")
 				transaction2.store(key: "Test Key 1", value: "Test Value 1")
@@ -91,7 +91,7 @@ class TransactionTests: XCTestCase {
 	func testAddWriteConflictOnKeyAddsConflict() throws {
 		self.runLoop(eventLoop) {
 			let transaction2 = self.connection.startTransaction()
-			transaction2.read("Test Key 1").then { _ -> EventLoopFuture<Void> in
+			transaction2.read("Test Key 1").flatMap { _ -> EventLoopFuture<Void> in
 				self.transaction.addWriteConflict(key: "Test Key 1")
 				self.transaction.store(key: "Test Key 2", value: "Test Value 2")
 				return self.connection.commit(transaction: self.transaction)

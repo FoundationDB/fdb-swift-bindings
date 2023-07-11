@@ -128,10 +128,10 @@ class StackMachineTests: XCTestCase {
 	
 	func execute(command: Command) -> EventLoopFuture<Void> {
 		do {
-			return try self.machine.execute(command: command) ?? eventLoop.newSucceededFuture(result: Void())
+			return try self.machine.execute(command: command) ?? eventLoop.makeSucceededFuture(Void())
 		}
 		catch {
-			return eventLoop.newFailedFuture(error: error)
+			return eventLoop.makeFailedFuture(error)
 		}
 	}
 	
@@ -140,7 +140,7 @@ class StackMachineTests: XCTestCase {
 		self.machine.stack = []
 		return self.machine.execute(operation: operation).map { _ in
 			self.recordFailure(withDescription: "", inFile: file, atLine: line, expected: true)
-			}.mapIfError { error in
+			}.recover { error in
 				switch(error) {
 				case StackMachine.ExecutionError.PoppedEmptyStack: break
 				default: self.recordFailure(withDescription: "Threw unexpected error: \(error)", inFile: file, atLine: line, expected: true)
@@ -150,10 +150,10 @@ class StackMachineTests: XCTestCase {
 	
 	func testExecutePushAddsItemToStack() throws {
 		self.runLoop(eventLoop) {
-			self.execute(command: Command(operation: .push, argument: "My Data")!).then { _ -> EventLoopFuture<Void> in
+			self.execute(command: Command(operation: .push, argument: "My Data")!).flatMap { _ -> EventLoopFuture<Void> in
 				XCTAssertEqual(self.machine.stack.count, 3)
 				guard self.machine.stack.count > 0 else {
-					return self.eventLoop.newSucceededFuture(result: Void())
+					return self.eventLoop.makeSucceededFuture(Void())
 				}
 				XCTAssertEqual(self.machine.stack.last?.metadata.commandNumber, 3)
 				return self.machine.stack.last!.value.map {
@@ -165,7 +165,7 @@ class StackMachineTests: XCTestCase {
 	
 	func testExecuteDupAddsItemToStack() throws {
 		self.runLoop(eventLoop) {
-			self.machine.execute(operation: .dup).then { _ -> EventLoopFuture<Void> in
+			self.machine.execute(operation: .dup).flatMap { _ -> EventLoopFuture<Void> in
 				XCTAssertEqual(self.machine.stack.count, 3)
 				XCTAssertEqual(self.machine.stack.last?.metadata.commandNumber, 2)
 				return self.machine.stack.last!.value.map {
@@ -218,7 +218,7 @@ class StackMachineTests: XCTestCase {
 	func testExecuteSwapWithIndexBeyondBoundsThrowsError() throws {
 		self.runLoop(eventLoop) {
 			self.machine.push(value: 3)
-			self.machine.execute(operation: .swap).map { _ in XCTFail() }.mapIfError {
+			self.machine.execute(operation: .swap).map { _ in XCTFail() }.recover {
 				error in
 				switch(error) {
 				case StackMachine.ExecutionError.SwappedBeyondBounds(index: 3, count: 2): break
@@ -269,7 +269,7 @@ class StackMachineTests: XCTestCase {
 				XCTAssertEqual(self.machine.stack.count, 3)
 				XCTAssertEqual(self.machine.stack.last?.metadata.commandNumber, 3)
 				_ = self.machine.stack.last!.value.map { _ in XCTFail() }
-					.mapIfError { error in
+					.recover { error in
 						switch(error) {
 						case StackMachine.ExecutionError.IllegalValueType: break
 						default: XCTFail("Threw unexpected error: \(error)")
@@ -287,7 +287,7 @@ class StackMachineTests: XCTestCase {
 				XCTAssertEqual(self.machine.stack.count, 3)
 				XCTAssertEqual(self.machine.stack.last?.metadata.commandNumber, 3)
 				_ = self.machine.stack.last!.value.map { _ in XCTFail() }
-					.mapIfError { error in
+					.recover { error in
 						switch(error) {
 						case StackMachine.ExecutionError.IllegalValueType: break
 						default: XCTFail("Threw unexpected error: \(error)")
@@ -326,7 +326,7 @@ class StackMachineTests: XCTestCase {
 			self.machine.execute(operation: .concat).map { _ in
 				XCTAssertEqual(self.machine.stack.count, 3)
 				XCTAssertEqual(self.machine.stack.last?.metadata.commandNumber, 3)
-				_ = self.machine.stack.last!.value.map { _ in XCTFail() }.mapIfError { error in
+				_ = self.machine.stack.last!.value.map { _ in XCTFail() }.recover { error in
 					switch(error) {
 					case StackMachine.ExecutionError.IllegalValueType: break
 					default: XCTFail("Threw unexpected error: \(error)")
@@ -341,7 +341,7 @@ class StackMachineTests: XCTestCase {
 			self.machine.push(value: 1)
 			self.machine.push(value: 2)
 			self.machine.execute(operation: .concat).map { _ in
-				_ = self.machine.stack.last!.value.map { _ in XCTFail() }.mapIfError { error in
+				_ = self.machine.stack.last!.value.map { _ in XCTFail() }.recover { error in
 					switch(error) {
 					case StackMachine.ExecutionError.IllegalValueType: break
 					default: XCTFail("Threw unexpected error: \(error)")
@@ -355,7 +355,7 @@ class StackMachineTests: XCTestCase {
 		self.runLoop(eventLoop) {
 			let prefix = "bindingTestLogKeys".utf8.data
 			self.machine.push(value: prefix)
-			self.machine.execute(operation: .log).then { _ -> EventLoopFuture<Void> in
+			self.machine.execute(operation: .log).flatMap { _ -> EventLoopFuture<Void> in
 				var end = prefix
 				end.append(0xFF)
 				XCTAssertEqual(self.machine.stack.count, 0)
@@ -425,7 +425,7 @@ class StackMachineTests: XCTestCase {
 			let key = DatabaseValue(string: "Test Key 1")
 			self.connection.transaction { transaction -> Void in
 				transaction.store(key: key, value: "Test Value 1")
-				}.then { _ -> EventLoopFuture<Void> in
+				}.flatMap { _ -> EventLoopFuture<Void> in
 					self.machine.push(value: key.data)
 					return self.machine.execute(operation: .get)
 				}.map { _ -> Void in
@@ -460,7 +460,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.push(value: 2)
 					self.machine.push(value: 1)
 					self.machine.push(value: "Test Key 1".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .getKey)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -481,7 +481,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.push(value: 2)
 					self.machine.push(value: 1)
 					self.machine.push(value: "Test Key 1".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .getKey)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -502,7 +502,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.push(value: 2)
 					self.machine.push(value: 1)
 					self.machine.push(value: "Test Key 1".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .getKey)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -523,7 +523,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.push(value: 2)
 					self.machine.push(value: 1)
 					self.machine.push(value: "Test Key 5".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .getKey)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -545,7 +545,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.push(value: 0)
 					self.machine.push(value: "Test Key 4".utf8.data)
 					self.machine.push(value: "Test Key 2".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .getRange)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -575,7 +575,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.push(value: 0)
 					self.machine.push(value: "Test Key 4".utf8.data)
 					self.machine.push(value: "Test Key 2".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .getRange)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -604,7 +604,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.push(value: 3)
 					self.machine.push(value: "Test Key 5".utf8.data)
 					self.machine.push(value: "Test Key".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .getRange)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -631,7 +631,7 @@ class StackMachineTests: XCTestCase {
 			self.machine.push(value: "Test Key 4".utf8.data)
 			self.machine.push(value: "Test Key 2".utf8.data)
 			_ = self.machine.execute(operation: .getRange).map {
-				_ = self.machine.stack.last!.value.map { _ in XCTFail() }.mapIfError {
+				_ = self.machine.stack.last!.value.map { _ in XCTFail() }.recover {
 					error in
 					switch(error) {
 					case StackMachine.ExecutionError.IllegalStreamingMode: break
@@ -639,7 +639,7 @@ class StackMachineTests: XCTestCase {
 						XCTFail("Got unexpected error: \(error)")
 					}
 				}
-				}.map { _ in XCTFail() }.mapIfError { error in
+				}.map { _ in XCTFail() }.recover { error in
 					switch(error) {
 					case StackMachine.ExecutionError.IllegalStreamingMode: break
 					default:
@@ -663,7 +663,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.push(value: 0)
 					self.machine.push(value: 0)
 					self.machine.push(value: "Test Key".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .getRangeStartingWith)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -694,7 +694,7 @@ class StackMachineTests: XCTestCase {
 			self.machine.push(value: 0)
 			self.machine.push(value: "Test Key".utf8.data)
 			_ = self.machine.execute(operation: .getRangeStartingWith)
-				.map { _ in XCTFail() }.mapIfError { error in
+				.map { _ in XCTFail() }.recover { error in
 					switch(error) {
 					case StackMachine.ExecutionError.IllegalStreamingMode: break
 					default:
@@ -724,7 +724,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.push(value: 1)
 					self.machine.push(value: 0)
 					self.machine.push(value: "M".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .getRangeSelector)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -768,7 +768,7 @@ class StackMachineTests: XCTestCase {
 	
 	func testExecuteGetVersionStampPutsVersionStampFutureOnStack() throws {
 		self.runLoop(eventLoop) {
-			self.machine.execute(operation: .getVersionStamp).then { _ -> EventLoopFuture<Void> in
+			self.machine.execute(operation: .getVersionStamp).flatMap { _ -> EventLoopFuture<Void> in
 				XCTAssertEqual(self.machine.stack.count, 3)
 				
 				return self.connection.commit(transaction: self.machine.currentTransaction).map { _ in
@@ -784,10 +784,10 @@ class StackMachineTests: XCTestCase {
 			self.machine.push(value: "Set Test Value".utf8.data)
 			self.machine.push(value: key.data)
 			self.machine.execute(operation: .set)
-				.then { _ -> EventLoopFuture<Void> in
+				.flatMap { _ -> EventLoopFuture<Void> in
 					return self.connection.transaction { $0.read(key) }
 						.map { XCTAssertNil($0) }
-				}.then { _ in
+				}.flatMap { _ in
 					self.connection.commit(transaction: self.machine.currentTransaction)
 				}.map { _ in
 					self.connection.transaction {$0.read(key)}
@@ -803,11 +803,11 @@ class StackMachineTests: XCTestCase {
 				$0.store(key: key, value: "Test Value")
 				}.map { _ in
 					self.machine.push(value: key.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .clear)
 				}.map { _ in
 					self.connection.transaction {$0.read(key)}.map { XCTAssertNil($0) }.catch(self)
-				}.then { _ in
+				}.flatMap { _ in
 					self.connection.commit(transaction: self.machine.currentTransaction)
 				}.map { _ in
 					self.connection.transaction {$0.read(key)}.map { XCTAssertNil($0) }.catch(self)
@@ -825,13 +825,13 @@ class StackMachineTests: XCTestCase {
 				}.map { _ in
 					self.machine.push(value: "Test Key 4".utf8.data)
 					self.machine.push(value: "Test Key 2".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .clearRange)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 2)
-				}.then { _ in
+				}.flatMap { _ in
 					self.connection.transaction {$0.read("Test Key 1")}.map { XCTAssertNotNil($0) }
-				}.then { _ in
+				}.flatMap { _ in
 					self.connection.commit(transaction: self.machine.currentTransaction)
 				}.map { _ in
 					self.connection.transaction {$0.read("Test Key 1")}.map { XCTAssertNotNil($0) }.catch(self)
@@ -858,13 +858,13 @@ class StackMachineTests: XCTestCase {
 				$0.store(key: "Test Keys", value: "Test Value 5")
 				}.map { _ in
 					self.machine.push(value: "Test Key ".utf8.data)
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .clearRangeStartingWith)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 2)
-				}.then { _ in
+				}.flatMap { _ in
 					self.connection.transaction {$0.read("Test Key 2")}.map { XCTAssertNotNil($0) }
-				}.then { _ in
+				}.flatMap { _ in
 					self.connection.commit(transaction: self.machine.currentTransaction)
 				}.map { _ in
 					self.connection.transaction {$0.read("Test Key 1")}.map { XCTAssertNil($0) }.catch(self)
@@ -889,7 +889,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.push(value: Data(bytes: [0x93]))
 					self.machine.push(value: "Test Key".utf8.data)
 					self.machine.push(value: "BIT_AND")
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .atomicOperation)
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 2)
@@ -904,7 +904,7 @@ class StackMachineTests: XCTestCase {
 		self.runLoop(eventLoop) {
 			let key1 = DatabaseValue(string: "Test Key 1")
 			self.machine.push(value: key1.data)
-			self.machine.execute(operation: .addReadConflictOnKey).then { _ in
+			self.machine.execute(operation: .addReadConflictOnKey).flatMap { _ in
 				self.connection.transaction {
 					$0.store(key: key1, value: "TestValue")
 				}
@@ -932,13 +932,13 @@ class StackMachineTests: XCTestCase {
 			self.machine.push(value: key2.data)
 			self.machine.push(value: key1.data)
 			
-			self.machine.execute(operation: .addReadConflictOnRange).then { _ in
+			self.machine.execute(operation: .addReadConflictOnRange).flatMap { _ in
 				self.connection.transaction {
 					$0.store(key: key1, value: "TestValue")
 				}
 				}.map { _ in
 					self.machine.currentTransaction.store(key: "Test Key 3", value: "TestValue3")
-					_ = self.connection.commit(transaction: self.machine.currentTransaction).map { _ in XCTFail() }.mapIfError { _ in }
+					_ = self.connection.commit(transaction: self.machine.currentTransaction).map { _ in XCTFail() }.recover { _ in }
 					XCTAssertEqual(self.machine.stack.count, 3)
 					self.machine.stack.last!.value.map { XCTAssertEqual($0 as? Data, "SET_CONFLICT_RANGE".utf8.data) }.catch(self)
 				}.catch(self)
@@ -956,15 +956,15 @@ class StackMachineTests: XCTestCase {
 			let key1 = DatabaseValue(string: "Test Key 1")
 			self.machine.push(value: key1.data)
 			
-			self.machine.execute(operation: .addWriteConflictOnKey).then { _ -> EventLoopFuture<Void> in
+			self.machine.execute(operation: .addWriteConflictOnKey).flatMap { _ -> EventLoopFuture<Void> in
 				self.machine.currentTransaction.store(key: "Test Key 2", value: "Test Value 2")
 				let transaction2 = self.connection.startTransaction()
 				return transaction2.read(key1).map { _ in
 					transaction2.store(key: "Write Key", value: "TestValue")
-					}.then { _ in
+					}.flatMap { _ in
 						self.connection.commit(transaction: self.machine.currentTransaction)
 					}.map { _ in
-						_ = self.connection.commit(transaction: transaction2).map { _ in XCTFail() }.mapIfError { _ in }
+						_ = self.connection.commit(transaction: transaction2).map { _ in XCTFail() }.recover { _ in }
 				}
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -985,14 +985,14 @@ class StackMachineTests: XCTestCase {
 			self.machine.push(value: "Test Key 2".utf8.data)
 			self.machine.push(value: key1.data)
 			
-			self.machine.execute(operation: .addWriteConflictOnRange).then { _ -> EventLoopFuture<Void> in
+			self.machine.execute(operation: .addWriteConflictOnRange).flatMap { _ -> EventLoopFuture<Void> in
 				self.machine.currentTransaction.store(key: "Test Key 3", value: "Test Value 3")
 				let transaction2 = self.connection.startTransaction()
-				return transaction2.read(key1).then { _ -> EventLoopFuture<Void> in
+				return transaction2.read(key1).flatMap { _ -> EventLoopFuture<Void> in
 					transaction2.store(key: "Write Key", value: "TestValue")
 					return self.connection.commit(transaction: self.machine.currentTransaction)
-					}.then { _ in
-						self.connection.commit(transaction: transaction2).map { _ in XCTFail() }.mapIfError { _ in }
+					}.flatMap { _ in
+						self.connection.commit(transaction: transaction2).map { _ in XCTFail() }.recover { _ in }
 				}
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -1014,9 +1014,9 @@ class StackMachineTests: XCTestCase {
 				transaction2.read("Test Key 1").map { _ in
 					transaction2.store(key: "Test Key 2", value: "Test Value 2")
 					self.machine.currentTransaction.store(key: "Test Key 1", value: "Test Value 1")
-					}.then { _ in
+					}.flatMap { _ in
 						self.connection.commit(transaction: self.machine.currentTransaction)
-					}.then { _ in
+					}.flatMap { _ in
 						self.connection.commit(transaction: transaction2)
 					}.catch(self)
 				}.catch(self)
@@ -1027,7 +1027,7 @@ class StackMachineTests: XCTestCase {
 		self.runLoop(eventLoop) {
 			let key: DatabaseValue = "Test Key"
 			self.machine.currentTransaction.store(key: key, value: "Test Value")
-			self.machine.execute(operation: .commit).then { _ in
+			self.machine.execute(operation: .commit).flatMap { _ in
 				self.connection.transaction {$0.read(key)}.map { XCTAssertNotNil($0) }
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -1050,9 +1050,9 @@ class StackMachineTests: XCTestCase {
 			self.machine.currentTransaction.store(key: "Test Key 1", value: "Test Value 1")
 			self.machine.execute(operation: .reset).map { _ in
 				self.machine.currentTransaction.store(key: "Test Key 2", value: "Test Value 2")
-				}.then { _ in
+				}.flatMap { _ in
 					self.connection.commit(transaction: self.machine.currentTransaction)
-				}.then { _ in
+				}.flatMap { _ in
 					self.connection.transaction { (transaction: Transaction) in
 						transaction.read("Test Key 1").map { XCTAssertNil($0) }.catch(self)
 						transaction.read("Test Key 2").map { XCTAssertEqual($0, "Test Value 2") }.catch(self)
@@ -1067,7 +1067,7 @@ class StackMachineTests: XCTestCase {
 		self.runLoop(eventLoop) {
 			self.machine.currentTransaction.store(key: "Test Key", value: "Test Value")
 			self.connection.commit(transaction: self.machine.currentTransaction)
-				.then { _ in
+				.flatMap { _ in
 					self.machine.execute(operation: .getCommittedVersion)
 				}.map { _ in
 					self.machine.currentTransaction.getCommittedVersion().map { XCTAssertEqual($0, self.machine.lastSeenVersion) }.catch(self)
@@ -1086,7 +1086,7 @@ class StackMachineTests: XCTestCase {
 				metadata: .init(commandNumber: 2)
 			))
 			
-			self.machine.execute(operation: .waitFuture).thenThrowing { _ in
+			self.machine.execute(operation: .waitFuture).flatMapThrowing { _ in
 				let future = self.machine.stack.last!.value
 				XCTAssertEqual(self.machine.stack.count, 3)
 				XCTAssertEqual(try future.wait() as? String, "Test Value")
@@ -1186,11 +1186,11 @@ class StackMachineTests: XCTestCase {
 				$0.store(key: Tuple("New Command Prefix".utf8.data, 5), value: Tuple("SET"))
 				$0.store(key: Tuple("New Command Prefix".utf8.data, 6), value: Tuple("SET"))
 				$0.store(key: Tuple("New Command Prefix".utf8.data, 7), value: Tuple("COMMIT"))
-				}.then { _ in
+				}.flatMap { _ in
 					self.machine.execute(operation: .startThread)
-				}.then { _ in
+				}.flatMap { _ in
 					self.connection.transaction {
-						$0.read("Thread Key 2").thenThrowing { value in
+						$0.read("Thread Key 2").flatMapThrowing { value in
 							if value == nil {
 								throw ClusterDatabaseConnection.FdbApiError(1020)
 							}
@@ -1210,7 +1210,7 @@ class StackMachineTests: XCTestCase {
 				}
 			}
 			self.machine.execute(operation: .waitEmpty)
-				.then { _ in
+				.flatMap { _ in
 					self.connection.transaction {
 						return $0.read("Wait Empty Test 2").map { XCTAssertNotNil($0) }
 					}
@@ -1218,7 +1218,7 @@ class StackMachineTests: XCTestCase {
 				.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
 					self.machine.pop().map { XCTAssertEqual($0 as? Data, "WAITED_FOR_EMPTY".utf8.data) }.catch(self)
-				}.then { _ in
+				}.flatMap { _ in
 					longTransaction
 				}
 				.catch(self)

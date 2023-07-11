@@ -86,7 +86,7 @@ public final class InMemoryTransaction: Transaction {
 		var end = key
 		end.data.append(0x00)
 		self.addReadConflict(on: key ..< end)
-		return self.eventLoop.newSucceededFuture(result: self.database[key])
+		return self.eventLoop.makeSucceededFuture( self.database[key])
 	}
 	
 	
@@ -103,10 +103,10 @@ public final class InMemoryTransaction: Transaction {
 		let keys = self.database.keys(from: DatabaseValue(Data([0x00])), to: DatabaseValue(Data([0xFF])))
 		let index = self.keyMatching(selector: selector, from: keys)
 		if index >= keys.startIndex && index < keys.endIndex {
-			return eventLoop.newSucceededFuture(result: keys[index])
+			return eventLoop.makeSucceededFuture( keys[index])
 		}
 		else {
-			return eventLoop.newSucceededFuture(result: nil)
+			return eventLoop.makeSucceededFuture(nil)
 		}
 	}
 	
@@ -256,7 +256,7 @@ public final class InMemoryTransaction: Transaction {
 	reading from.
 	*/
 	public func getReadVersion() -> EventLoopFuture<Int64> {
-		return eventLoop.newSucceededFuture(result: readVersion)
+		return eventLoop.makeSucceededFuture(readVersion)
 	}
 	
 	/**
@@ -276,7 +276,7 @@ public final class InMemoryTransaction: Transaction {
 	If the transaction has not committed, this will return -1.
 	*/
 	public func getCommittedVersion() -> EventLoopFuture<Int64> {
-		return eventLoop.newSucceededFuture(result: self.committedVersion ?? -1)
+		return eventLoop.makeSucceededFuture(self.committedVersion ?? -1)
 	}
 	
 	/**
@@ -313,10 +313,10 @@ public final class InMemoryTransaction: Transaction {
 	public func attemptRetry(error: Error) -> EventLoopFuture<Void> {
 		if let apiError = error as? ClusterDatabaseConnection.FdbApiError, apiError.errorCode != -1 {
 			reset()
-			return self.eventLoop.newSucceededFuture(result: Void())
+			return self.eventLoop.makeSucceededFuture( Void())
 		}
 		else {
-			return self.eventLoop.newFailedFuture(error: error)
+			return self.eventLoop.makeFailedFuture(error)
 		}
 	}
 	
@@ -376,7 +376,7 @@ public final class InMemoryTransaction: Transaction {
 			bytes.insert(UInt8(versionCopy & 0xFF), at: 0)
 			versionCopy = versionCopy >> 8
 		}
-		promise.succeed(result: DatabaseValue(Data(bytes)))
+		promise.succeed(DatabaseValue(Data(bytes)))
 	}
 	
 	/**
@@ -387,7 +387,7 @@ public final class InMemoryTransaction: Transaction {
 	return a value once the transaction is committed.
 	*/
 	public func getVersionStamp() -> EventLoopFuture<DatabaseValue> {
-		let promise: EventLoopPromise<DatabaseValue> = eventLoop.newPromise()
+		let promise: EventLoopPromise<DatabaseValue> = eventLoop.makePromise()
 		self.checkVersionStamp(promise: promise)
 		return promise.futureResult
 	}

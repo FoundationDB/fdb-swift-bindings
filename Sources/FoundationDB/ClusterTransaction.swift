@@ -45,7 +45,7 @@ public class ClusterTransaction: Transaction {
 		self.database = database
 		self.eventLoop = database.eventLoop
 		
-		transaction = database.database.thenThrowing {
+		transaction = database.database.flatMapThrowing {
 			var pointer: OpaquePointer? = nil
 			try ClusterDatabaseConnection.FdbApiError.wrapApiError(fdb_database_create_transaction($0, &pointer))
 			if let transaction = pointer {
@@ -81,7 +81,7 @@ public class ClusterTransaction: Transaction {
 		return key.data.withUnsafeBytes {
 			bytes in
 			return self.withTransaction { transaction in
-				return EventLoopFuture<DatabaseValue?>.fromFoundationFuture(eventLoop: self.eventLoop, future: fdb_transaction_get(transaction, bytes, Int32(key.data.count), snapshot ? 1 : 0)) {
+				return EventLoopFuture<DatabaseValue?>.fromFoundationFuture(eventLoop: self.eventLoop, future: fdb_transaction_get(transaction, bytes.baseAddress, Int32(key.data.count), snapshot ? 1 : 0)) {
 					(future: OpaquePointer) -> DatabaseValue? in
 					var present: Int32 = 0
 					var bytes: UnsafePointer<UInt8>? = nil
@@ -112,8 +112,8 @@ public class ClusterTransaction: Transaction {
 	public func findKey(selector: KeySelector, snapshot: Bool) -> EventLoopFuture<DatabaseValue?> {
 		return withTransaction { transaction in
 			let cFuture = selector.anchor.data.withUnsafeBytes {
-				(bytes: UnsafePointer<UInt8>) -> OpaquePointer in
-				fdb_transaction_get_key(transaction, bytes, Int32(selector.anchor.data.count), selector.orEqual, selector.offset, snapshot ? 1 : 0)
+				bytes -> OpaquePointer in
+				fdb_transaction_get_key(transaction, bytes.baseAddress, Int32(selector.anchor.data.count), selector.orEqual, selector.offset, snapshot ? 1 : 0)
 			}
 			return EventLoopFuture<DatabaseValue?>.fromFoundationFuture(eventLoop: self.eventLoop, future: cFuture) {
 				(future: OpaquePointer) -> DatabaseValue? in
@@ -165,8 +165,8 @@ public class ClusterTransaction: Transaction {
 		
 		return EventLoopFuture<Void>.retrying(eventLoop: eventLoop, onError: { (error: Error) -> EventLoopFuture<Void> in
 			switch(error) {
-			case FdbFutureError.ContinueStream: return self.eventLoop.newSucceededFuture(result: Void())
-			default: return self.eventLoop.newFailedFuture(error: error)
+			case FdbFutureError.ContinueStream: return self.eventLoop.makeSucceededFuture(Void())
+			default: return self.eventLoop.makeFailedFuture(error)
 			}
 		}) { () -> EventLoopFuture<Void> in
 			let endData = end.anchor.data
@@ -227,11 +227,11 @@ public class ClusterTransaction: Transaction {
 	*/
 	public func store(key: DatabaseValue, value: DatabaseValue) {
 		key.data.withUnsafeBytes {
-			(keyBytes: UnsafePointer<UInt8>) in
+			keyBytes in
 			value.data.withUnsafeBytes {
-				(valueBytes: UnsafePointer<UInt8>) in
+				valueBytes in
 				withTransaction { transaction in
-					fdb_transaction_set(transaction, keyBytes, Int32(key.data.count), valueBytes, Int32(value.data.count))
+					fdb_transaction_set(transaction, keyBytes.baseAddress, Int32(key.data.count), valueBytes.baseAddress, Int32(value.data.count))
 				}
 			}
 		}
@@ -245,7 +245,7 @@ public class ClusterTransaction: Transaction {
 	public func clear(key: DatabaseValue) {
 		withTransaction { transaction in
 			key.data.withUnsafeBytes {
-				fdb_transaction_clear(transaction, $0, Int32(key.data.count))
+				fdb_transaction_clear(transaction, $0.baseAddress, Int32(key.data.count))
 			}
 		}
 	}
@@ -261,7 +261,7 @@ public class ClusterTransaction: Transaction {
 		withTransaction { transaction in
 			range.lowerBound.data.withUnsafeBytes { lowerBytes in
 				range.upperBound.data.withUnsafeBytes { upperBytes in
-					fdb_transaction_clear_range(transaction, lowerBytes, Int32(range.lowerBound.data.count), upperBytes, Int32(range.upperBound.data.count))
+					fdb_transaction_clear_range(transaction, lowerBytes.baseAddress, Int32(range.lowerBound.data.count), upperBytes.baseAddress, Int32(range.upperBound.data.count))
 				}
 			}
 		}
@@ -279,7 +279,7 @@ public class ClusterTransaction: Transaction {
 		withTransaction { transaction in
 			range.lowerBound.data.withUnsafeBytes { lowerBytes in
 				range.upperBound.data.withUnsafeBytes { upperBytes in
-					_ = fdb_transaction_add_conflict_range(transaction, lowerBytes, Int32(range.lowerBound.data.count), upperBytes, Int32(range.upperBound.data.count), FDB_CONFLICT_RANGE_TYPE_READ)
+					_ = fdb_transaction_add_conflict_range(transaction, lowerBytes.baseAddress, Int32(range.lowerBound.data.count), upperBytes.baseAddress, Int32(range.upperBound.data.count), FDB_CONFLICT_RANGE_TYPE_READ)
 				}
 			}
 		}
@@ -297,10 +297,10 @@ public class ClusterTransaction: Transaction {
 	public func addWriteConflict(on range: Range<DatabaseValue>) {
 		withTransaction { transaction in
 			range.lowerBound.data.withUnsafeBytes {
-				(lowerBytes: UnsafePointer<UInt8>) in
+				lowerBytes in
 				range.upperBound.data.withUnsafeBytes {
-					(upperBytes: UnsafePointer<UInt8>) in
-					_ = fdb_transaction_add_conflict_range(transaction, lowerBytes, Int32(range.lowerBound.data.count), upperBytes, Int32(range.upperBound.data.count), FDBConflictRangeType(rawValue: 1))
+					upperBytes in
+					_ = fdb_transaction_add_conflict_range(transaction, lowerBytes.baseAddress, Int32(range.lowerBound.data.count), upperBytes.baseAddress, Int32(range.upperBound.data.count), FDBConflictRangeType(rawValue: 1))
 				}
 			}
 		}
@@ -335,7 +335,7 @@ public class ClusterTransaction: Transaction {
 	If the transaction has not committed, this will return -1.
 	*/
 	public func getCommittedVersion() -> EventLoopFuture<Int64> {
-		return transaction.then { transaction in
+		return transaction.flatMap { transaction in
 			return self.eventLoop.submit {
 				var result: Int64 = 0
 				try ClusterDatabaseConnection.FdbApiError.wrapApiError(fdb_transaction_get_committed_version(transaction, &result))
@@ -362,7 +362,7 @@ public class ClusterTransaction: Transaction {
 			}
 		}
 		else {
-			return self.eventLoop.newFailedFuture(error: error)
+			return self.eventLoop.makeFailedFuture(error)
 		}
 	}
 	
@@ -395,10 +395,10 @@ public class ClusterTransaction: Transaction {
 	public func performAtomicOperation(operation: MutationType, key: DatabaseValue, value: DatabaseValue) -> Void {
 		withTransaction { transaction in
 			key.data.withUnsafeBytes {
-				(keyBytes: UnsafePointer<UInt8>) in
+				keyBytes in
 				value.data.withUnsafeBytes {
-					(valueBytes: UnsafePointer<UInt8>) in
-					fdb_transaction_atomic_op(transaction, keyBytes, Int32(key.data.count), valueBytes, Int32(value.data.count), FDBMutationType(UInt32(operation.rawValue)))
+					valueBytes in
+					fdb_transaction_atomic_op(transaction, keyBytes.baseAddress, Int32(key.data.count), valueBytes.baseAddress, Int32(value.data.count), FDBMutationType(UInt32(operation.rawValue)))
 				}
 			}
 		}
@@ -436,8 +436,8 @@ public class ClusterTransaction: Transaction {
 		withTransaction { transaction in
 			if let _value = value {
 				_value.data.withUnsafeBytes {
-					(bytes: UnsafePointer<UInt8>) in
-					_ = fdb_transaction_set_option(transaction, FDBTransactionOption(rawValue: option.rawValue), bytes, Int32(_value.data.count))
+					bytes in
+					_ = fdb_transaction_set_option(transaction, FDBTransactionOption(rawValue: option.rawValue), bytes.baseAddress, Int32(_value.data.count))
 				}
 			}
 			else {
@@ -447,7 +447,7 @@ public class ClusterTransaction: Transaction {
 	}
 	
 	internal func withTransaction<T>(block: @escaping (OpaquePointer) throws -> T) -> EventLoopFuture<T> {
-		return transaction.thenThrowing {
+		return transaction.flatMapThrowing {
 			let value = try block($0)
 			_ = self
 			return value
@@ -457,7 +457,7 @@ public class ClusterTransaction: Transaction {
 	
 	internal func withTransaction<T>(block: @escaping (OpaquePointer) throws -> EventLoopFuture<T>) -> EventLoopFuture<T> {
 		return transaction.thenThrowingFuture {
-			try block($0).map {
+			try block($0 as! OpaquePointer).map {
 				_ = self
 				return $0
 			}
@@ -465,7 +465,7 @@ public class ClusterTransaction: Transaction {
 	}
 	
 	internal func withTransaction(block: @escaping (OpaquePointer) throws -> Void) rethrows -> Void {
-		_ = transaction.thenThrowing {
+		_ = transaction.flatMapThrowing {
 			_ = self
 			try block($0)
 		}

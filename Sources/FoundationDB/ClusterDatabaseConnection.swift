@@ -88,12 +88,12 @@ public class ClusterDatabaseConnection: DatabaseConnection {
 		
 		self.eventLoop = eventLoop
 		self.cluster = EventLoopFuture<OpaquePointer>.fromFoundationFuture(eventLoop: eventLoop, future: fdb_create_cluster(clusterPath), fetch: fdb_future_get_cluster)
-			.mapIfError {
+			.recover {
 				fatalError("\($0)")
 		}
-		self.database = cluster.then {
+		self.database = cluster.flatMap {
 			EventLoopFuture<OpaquePointer>.fromFoundationFuture(eventLoop: eventLoop, future: fdb_cluster_create_database($0, "DB", 2), fetch: fdb_future_get_database)
-			}.mapIfError {
+			}.recover {
 				fatalError("\($0)")
 		}
 	}
@@ -131,9 +131,9 @@ public class ClusterDatabaseConnection: DatabaseConnection {
 									will throw an error.
 	*/
 	public func commit(transaction: Transaction) -> EventLoopFuture<()> {
-		guard let clusterTransaction = transaction as? ClusterTransaction else { return self.eventLoop.newFailedFuture(error: FdbApiError(1000)) }
+		guard let clusterTransaction = transaction as? ClusterTransaction else { return self.eventLoop.makeFailedFuture( FdbApiError(1000)) }
 		return clusterTransaction.transaction
-			.then { transaction in
+			.flatMap { transaction in
 				return EventLoopFuture<Void>.fromFoundationFuture(eventLoop: self.eventLoop, future: fdb_transaction_commit(transaction)).map {
 					_ = clusterTransaction
 				}

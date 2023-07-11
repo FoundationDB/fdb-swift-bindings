@@ -91,7 +91,7 @@ class InMemoryDatabaseConnectionTests: XCTestCase {
 			let transaction2 = connection2.startTransaction()
 			transaction2.store(key: "Test Key", value: "Test Value")
 			self.connection.commit(transaction: transaction2).map { XCTFail() }
-				.mapIfError {
+				.recover {
 					switch($0) {
 					case let error as ClusterDatabaseConnection.FdbApiError:
 						XCTAssertEqual(error.errorCode, 1000)
@@ -106,9 +106,9 @@ class InMemoryDatabaseConnectionTests: XCTestCase {
 		self.runLoop(eventLoop) {
 			let transaction = self.connection.startTransaction()
 			transaction.store(key: "Test Key", value: "Test Value")
-			self.connection.commit(transaction: transaction).then {
+			self.connection.commit(transaction: transaction).flatMap {
 				self.connection.commit(transaction: transaction).map { XCTFail() }
-					.mapIfError {
+					.recover {
 						switch($0) {
 						case let error as ClusterDatabaseConnection.FdbApiError:
 							XCTAssertEqual(error.errorCode, 2017)
@@ -123,13 +123,13 @@ class InMemoryDatabaseConnectionTests: XCTestCase {
 	func testCommitWithReadConflictThrowsError() throws {
 		self.runLoop(eventLoop) {
 			let transaction1 = self.connection.startTransaction()
-			transaction1.read("Test Key 1").then { _ -> EventLoopFuture<()> in
+			transaction1.read("Test Key 1").flatMap { _ -> EventLoopFuture<()> in
 				transaction1.store(key: "Test Key 2", value: "Test Value 2")
 				let transaction2 = self.connection.startTransaction()
 				transaction2.store(key: "Test Key 1", value: "Test Value 1")
-				return self.connection.commit(transaction: transaction2).then {
+				return self.connection.commit(transaction: transaction2).flatMap {
 					_ = self.connection.commit(transaction: transaction1).map { _ in XCTFail() }
-						.mapIfError {
+						.recover {
 							switch($0) {
 							case let error as ClusterDatabaseConnection.FdbApiError:
 								XCTAssertEqual(error.errorCode, 1020)
@@ -149,13 +149,13 @@ class InMemoryDatabaseConnectionTests: XCTestCase {
 		self.runLoop(eventLoop) {
 			let transaction1 = self.connection.startTransaction()
 			transaction1.store(key: "Test Key 1", value: "Test Value 1")
-			self.connection.commit(transaction: transaction1).then { _ -> EventLoopFuture<()> in
+			self.connection.commit(transaction: transaction1).flatMap { _ -> EventLoopFuture<()> in
 				let transaction2 = self.connection.startTransaction()
 				_ = transaction2.read("Test Key 1")
 				transaction2.store(key: "Test Key 2", value: "Test Value 2")
 				let transaction3 = self.connection.startTransaction()
 				transaction3.store(key: "Test Key 3", value: "Test Value 3")
-				return self.connection.commit(transaction: transaction3).then {
+				return self.connection.commit(transaction: transaction3).flatMap {
 					self.connection.commit(transaction: transaction2).map {
 						let transaction4 = self.connection.startTransaction()
 						transaction4.read("Test Key 1").map { XCTAssertEqual($0, "Test Value 1") }.catch(self)
@@ -173,7 +173,7 @@ class InMemoryDatabaseConnectionTests: XCTestCase {
 			transaction.store(key: "Test Key 1", value: "Test Value 1")
 			transaction.cancel()
 			
-			self.connection.commit(transaction: transaction).map { XCTFail() }.mapIfError {
+			self.connection.commit(transaction: transaction).map { XCTFail() }.recover {
 				switch($0) {
 				case let error as ClusterDatabaseConnection.FdbApiError:
 					XCTAssertEqual(error.errorCode, 1025)

@@ -121,7 +121,7 @@ public final class StackMachine {
 	var commands: [Command] = []
 	
 	/** A value that we set when a stack operation does not produce a result. */
-	static let resultNotPresent = Data(bytes: Array("RESULT_NOT_PRESENT".utf8))
+	static let resultNotPresent = Data("RESULT_NOT_PRESENT".utf8)
 	
 	let connection: DatabaseConnection
 	
@@ -178,11 +178,11 @@ public final class StackMachine {
 				self.commands = $0.rows.map { $0.value }.compactMap { Command(data: $0) }
 				_ = self.executeNextCommand().map { _ in
 					self.finished = true;
-					}.mapIfError {
+					}.recover {
 						self.finished = true
 						print("\($0)")
 				}
-			}.mapIfError {
+			}.recover {
 				print("\($0)")
 		}
 	}
@@ -248,7 +248,7 @@ public final class StackMachine {
 	- parameter data:		The data for the item we are creating.
 	*/
 	func push(value: Any) {
-		self.push(future: connection.eventLoop.newSucceededFuture(result: value))
+		self.push(future: connection.eventLoop.makeSucceededFuture(value))
 	}
 	
 	/**
@@ -265,7 +265,7 @@ public final class StackMachine {
 		case let error as ClusterDatabaseConnection.FdbApiError:
 			print("Got error \(error) for metadata \(metadata)")
 			return Tuple(
-				Data(bytes: Array("ERROR".utf8)),
+				Data(Array("ERROR".utf8)),
 						 Data(bytes: Array(String(error.errorCode).utf8))
 				).databaseValue.data
 		default:
@@ -279,10 +279,10 @@ public final class StackMachine {
 	*/
 	func pop() -> EventLoopFuture<Any> {
 		if self.stack.isEmpty {
-			return connection.eventLoop.newFailedFuture(error: ExecutionError.PoppedEmptyStack)
+			return connection.eventLoop.makeFailedFuture(ExecutionError.PoppedEmptyStack)
 		}
 		let metadata = self.stack.last!.metadata
-		return self.stack.removeLast().value.thenIfErrorThrowing { error in
+		return self.stack.removeLast().value.flatMapErrorThrowing { error in
 			return try self.handleFutureError(error, metadata: metadata)
 		}
 	}
@@ -294,7 +294,7 @@ public final class StackMachine {
 	error.
 	*/
 	func popAndCast<T>() -> EventLoopFuture<T> {
-		return self.pop().thenThrowing {
+		return self.pop().flatMapThrowing {
 			if let value = $0 as? T {
 				return value
 			}
@@ -314,25 +314,25 @@ public final class StackMachine {
 	func popTuple<A,B>() -> EventLoopFuture<(A,B)> {
 		let lhs = self.popAndCast() as EventLoopFuture<A>
 		let rhs = self.popAndCast() as EventLoopFuture<B>
-		return lhs.then { lhs in rhs.map { rhs in (lhs,rhs) } }
+		return lhs.flatMap { lhs in rhs.map { rhs in (lhs,rhs) } }
 	}
 	
 	func popTuple<A,B,C>() -> EventLoopFuture<(A,B,C)> {
 		let lhs = self.popTuple() as EventLoopFuture<(A,B)>
 		let rhs = self.popAndCast() as EventLoopFuture<C>
-		return lhs.then { lhs in rhs.map { rhs in (lhs.0, lhs.1, rhs) } }
+		return lhs.flatMap { lhs in rhs.map { rhs in (lhs.0, lhs.1, rhs) } }
 	}
 	
 	func popTuple<A,B,C,D>() -> EventLoopFuture<(A,B,C,D)> {
 		let lhs = self.popTuple() as EventLoopFuture<(A,B,C)>
 		let rhs = self.popAndCast() as EventLoopFuture<D>
-		return lhs.then { lhs in rhs.map { rhs in (lhs.0, lhs.1, lhs.2, rhs) } }
+		return lhs.flatMap { lhs in rhs.map { rhs in (lhs.0, lhs.1, lhs.2, rhs) } }
 	}
 	
 	func popTuple<A,B,C,D,E>() -> EventLoopFuture<(A,B,C,D,E)> {
 		let lhs = self.popTuple() as EventLoopFuture<(A,B,C,D)>
 		let rhs = self.popAndCast() as EventLoopFuture<E>
-		return lhs.then { lhs in rhs.map { rhs in (lhs.0, lhs.1, lhs.2, lhs.3, rhs) } }
+		return lhs.flatMap { lhs in rhs.map { rhs in (lhs.0, lhs.1, lhs.2, lhs.3, rhs) } }
 	}
 	
 	func unsafeTuplePack(_ value: Any) throws -> Tuple {
@@ -379,7 +379,7 @@ public final class StackMachine {
 		if commandCount < commands.count {
 			do {
 				if let signal = try self.execute(command: commands[commandCount]) {
-					return signal.then {
+					return signal.flatMap {
 						self.commandCount += 1
 						return self.executeNextCommand()
 					}
@@ -390,23 +390,23 @@ public final class StackMachine {
 				}
 			}
 			catch {
-				return connection.eventLoop.newFailedFuture(error: error)
+				return connection.eventLoop.makeFailedFuture(error)
 			}
 		}
 		else {
-			return connection.eventLoop.newSucceededFuture(result: Void())
+			return connection.eventLoop.makeSucceededFuture(Void())
 		}
 	}
 	
 	func execute(operation: Command.Operation) -> EventLoopFuture<Void> {
 		guard let command = Command(operation: operation) else {
-			return connection.eventLoop.newFailedFuture(error: ExecutionError.CommandNotSupported)
+			return connection.eventLoop.makeFailedFuture(ExecutionError.CommandNotSupported)
 		}
 		do {
-			return try self.execute(command: command) ?? connection.eventLoop.newSucceededFuture(result: Void())
+			return try self.execute(command: command) ?? connection.eventLoop.makeSucceededFuture(Void())
 		}
 		catch {
-			return connection.eventLoop.newFailedFuture(error: error)
+			return connection.eventLoop.makeFailedFuture(error)
 		}
 	}
 	
@@ -432,7 +432,7 @@ public final class StackMachine {
 		case .empty:
 			self.stack = []
 		case .swap:
-			signal = self.popAndCast().thenThrowing { (distance: Int) in
+			signal = self.popAndCast().flatMapThrowing { (distance: Int) in
 				guard distance < self.stack.count else {
 					throw ExecutionError.SwappedBeyondBounds(index: distance, count: self.stack.count)
 				}
@@ -448,7 +448,7 @@ public final class StackMachine {
 		case .sub:
 			let val1 = self.popAndCast() as EventLoopFuture<Int>
 			let val2 = self.popAndCast() as EventLoopFuture<Int>
-			let result = val1.then { val1 in
+			let result = val1.flatMap { val1 in
 				val2.map { val2 in val1 - val2 }
 			}
 			self.push(future: result)
@@ -456,8 +456,8 @@ public final class StackMachine {
 			let val1 = self.pop()
 			let val2 = self.pop()
 			
-			let pair = val1.then { val1 in val2.map { val2 in (val1, val2) } }
-			let result = pair.thenThrowing { (pair: (Any,Any)) -> Any in
+			let pair = val1.flatMap { val1 in val2.map { val2 in (val1, val2) } }
+			let result = pair.flatMapThrowing { (pair: (Any,Any)) -> Any in
 				switch(pair) {
 				case let (s1,s2) as (String,String):
 					return s1 + s2
@@ -479,16 +479,16 @@ public final class StackMachine {
 					key.append(Tuple(index, item.metadata.commandNumber).databaseValue.data)
 					return key
 				}
-				return key.then { key in
+				return key.flatMap { key in
 					item.value
-						.thenIfErrorThrowing { try self.handleFutureError($0, metadata: item.metadata) }
+						.flatMapErrorThrowing { try self.handleFutureError($0, metadata: item.metadata) }
 						.map { (key, $0) }
 				}
 			}
 			
 			let future: EventLoopFuture<[(Data,Any)]> = EventLoopFuture<(Data,Any)>.accumulating(futures: futureList, eventLoop: connection.eventLoop)
 			
-			signal = future.then { (items: [(Data, Any)]) -> EventLoopFuture<Void> in
+			signal = future.flatMap { (items: [(Data, Any)]) -> EventLoopFuture<Void> in
 				self.connection.transaction { transaction -> Void in
 					for (key,value) in items {
 						var tupleData = try self.unsafeTuplePack(value).databaseValue
@@ -513,11 +513,11 @@ public final class StackMachine {
 			}
 		case .onError:
 			let errorCode = self.popAndCast() as EventLoopFuture<Int>
-			let result = errorCode.then { error in
+			let result = errorCode.flatMap { error in
 				self.currentTransaction.attemptRetry(error: ClusterDatabaseConnection.FdbApiError(Int32(error)))
 				}.map { _ -> Any in StackMachine.resultNotPresent }
 			self.push(future: result)
-			signal = result.map { _ in Void() }.mapIfError { _ in Void() }
+			signal = result.map { _ in Void() }.recover { _ in Void() }
 		case .get:
 			signal = self.popAndCast().map { (key: DatabaseValue) in
 				self.performOperation(command) {
@@ -559,7 +559,7 @@ public final class StackMachine {
 			}
 		case .getRange:
 			let values = popTuple() as EventLoopFuture<(DatabaseValue, DatabaseValue, Int, Int, Int)>
-			signal = values.thenThrowing { (begin, end, limit, reverse, streamingModeNumber) in
+			signal = values.flatMapThrowing { (begin, end, limit, reverse, streamingModeNumber) in
 				try self.performOperation(command) {
 					(transaction, snapshot) in
 					guard let streamingMode = StreamingMode(rawValue: Int32(streamingModeNumber)) else {
@@ -581,7 +581,7 @@ public final class StackMachine {
 			}
 		case .getRangeStartingWith:
 			let values = self.popTuple() as EventLoopFuture<(DatabaseValue, Int, Int, Int)>
-			signal = values.thenThrowing { (prefix, limit, reverse, streamingModeNumber) in
+			signal = values.flatMapThrowing { (prefix, limit, reverse, streamingModeNumber) in
 				try self.performOperation(command) {
 					guard let streamingMode = StreamingMode(rawValue: Int32(streamingModeNumber)) else {
 						throw ExecutionError.IllegalStreamingMode
@@ -611,10 +611,10 @@ public final class StackMachine {
 				KeySelector(anchor: anchor, orEqual: orEqual, offset: offset)
 			}
 			let otherValues = popTuple() as EventLoopFuture<(Int, Int, Int, DatabaseValue)>
-			let allValues = beginSelector.then { lhs in endSelector.map { rhs in (lhs, rhs) } }
-				.then { lhs in otherValues.map { rhs in (lhs.0, lhs.1, rhs.0, rhs.1, rhs.2, rhs.3) } }
-			
-			signal = allValues.thenThrowing { (from, to, limit, reverse, streamingModeNumber, prefix) in
+			let allValues = beginSelector.flatMap { lhs in endSelector.map { rhs in (lhs, rhs) } }
+				.flatMap { lhs in otherValues.map { rhs in (lhs.0, lhs.1, rhs.0, rhs.1, rhs.2, rhs.3) } }
+
+			signal = allValues.flatMapThrowing { (from, to, limit, reverse, streamingModeNumber, prefix) in
 				try self.performOperation(command) {
 					guard let streamingMode = StreamingMode(rawValue: Int32(streamingModeNumber)) else {
 						throw ExecutionError.IllegalStreamingMode
@@ -639,9 +639,9 @@ public final class StackMachine {
 		case .getReadVersion:
 			signal = self.currentTransaction.getReadVersion().map {
 				self.lastSeenVersion = $0
-				self.push(value: Data(bytes: Array("GOT_READ_VERSION".utf8)))
-				}.mapIfError {
-					self.push(future: self.connection.eventLoop.newFailedFuture(error: $0) as EventLoopFuture<String>)
+				self.push(value: Data(Array("GOT_READ_VERSION".utf8)))
+				}.recover {
+					self.push(future: self.connection.eventLoop.makeFailedFuture($0) as EventLoopFuture<String>)
 			}
 		case .setReadVersion:
 			currentTransaction.setReadVersion(self.lastSeenVersion)
@@ -656,7 +656,7 @@ public final class StackMachine {
 					transaction, _ in
 					
 					transaction.store(key: key, value: value)
-					return self.connection.eventLoop.newSucceededFuture(result: StackMachine.resultNotPresent)
+					return self.connection.eventLoop.makeSucceededFuture(StackMachine.resultNotPresent)
 				}
 			}
 		case .clear:
@@ -664,7 +664,7 @@ public final class StackMachine {
 				self.performOperation(command, providesValue: false) {
 					transaction, _ in
 					transaction.clear(key: key)
-					return self.connection.eventLoop.newSucceededFuture(result: StackMachine.resultNotPresent)
+					return self.connection.eventLoop.makeSucceededFuture(StackMachine.resultNotPresent)
 				}
 			}
 		case .clearRange:
@@ -672,10 +672,10 @@ public final class StackMachine {
 				self.performOperation(command, providesValue: false) {
 					transaction, _ in
 					if key2 < key1 {
-						return self.connection.eventLoop.newFailedFuture(error: ClusterDatabaseConnection.FdbApiError(2005))
+						return self.connection.eventLoop.makeFailedFuture(ClusterDatabaseConnection.FdbApiError(2005))
 					}
 					transaction.clear(range: key1 ..< key2)
-					return self.connection.eventLoop.newSucceededFuture(result: StackMachine.resultNotPresent)
+					return self.connection.eventLoop.makeSucceededFuture(StackMachine.resultNotPresent)
 				}
 			}
 		case .clearRangeStartingWith:
@@ -685,11 +685,11 @@ public final class StackMachine {
 				self.performOperation(command, providesValue: false) {
 					transaction, _ in
 					transaction.clear(range: start ..< end)
-					return self.connection.eventLoop.newSucceededFuture(result: StackMachine.resultNotPresent)
+					return self.connection.eventLoop.makeSucceededFuture(StackMachine.resultNotPresent)
 				}
 			}
 		case .atomicOperation:
-			signal = self.popTuple().thenThrowing { (operationNameCaps: String, key: DatabaseValue, value: DatabaseValue) in
+			signal = self.popTuple().flatMapThrowing { (operationNameCaps: String, key: DatabaseValue, value: DatabaseValue) in
 				var capitalizeNext = false
 				
 				var operationName = ""
@@ -725,32 +725,32 @@ public final class StackMachine {
 			}
 		case .addReadConflictOnKey:
 			signal = self.popAndCast().map { (key: DatabaseValue) in
-				self.push(value: Data(bytes: Array("SET_CONFLICT_KEY".utf8)))
+				self.push(value: Data(Array("SET_CONFLICT_KEY".utf8)))
 				self.currentTransaction.addReadConflict(key: key)
 			}
 		case .addReadConflictOnRange:
 			signal = self.popTuple().map { (key1: DatabaseValue, key2: DatabaseValue) in
 				if key2 < key1 {
-					self.push(future: self.connection.eventLoop.newFailedFuture(error: ClusterDatabaseConnection.FdbApiError(2005)) as EventLoopFuture<Data>)
+					self.push(future: self.connection.eventLoop.makeFailedFuture(ClusterDatabaseConnection.FdbApiError(2005)) as EventLoopFuture<Data>)
 				}
 				else {
 					self.currentTransaction.addReadConflict(on: key1 ..< key2)
-					self.push(value: Data(bytes: Array("SET_CONFLICT_RANGE".utf8)))
+					self.push(value: Data(Array("SET_CONFLICT_RANGE".utf8)))
 				}
 			}
 		case .addWriteConflictOnKey:
 			signal = self.popAndCast().map { (key: DatabaseValue) in
 				self.currentTransaction.addWriteConflict(key: key)
-				self.push(value: Data(bytes: Array("SET_CONFLICT_KEY".utf8)))
+				self.push(value: Data(Array("SET_CONFLICT_KEY".utf8)))
 			}
 		case .addWriteConflictOnRange:
 			signal = self.popTuple().map { (key1: DatabaseValue, key2: DatabaseValue) in
 				if key2 < key1 {
-					self.push(future: self.connection.eventLoop.newFailedFuture(error: ClusterDatabaseConnection.FdbApiError(2005)) as EventLoopFuture<Data>)
+					self.push(future: self.connection.eventLoop.makeFailedFuture(ClusterDatabaseConnection.FdbApiError(2005)) as EventLoopFuture<Data>)
 				}
 				else {
 					self.currentTransaction.addWriteConflict(on: key1 ..< key2)
-					self.push(value: Data(bytes: Array("SET_CONFLICT_RANGE".utf8)))
+					self.push(value: Data(Array("SET_CONFLICT_RANGE".utf8)))
 				}
 			}
 		case .disableWriteConflict:
@@ -764,14 +764,14 @@ public final class StackMachine {
 		case .getCommittedVersion:
 			signal = currentTransaction.getCommittedVersion().map {
 				self.lastSeenVersion = $0
-				self.push(value: Data(bytes: Array("GOT_COMMITTED_VERSION".utf8)))
+				self.push(value: Data(Array("GOT_COMMITTED_VERSION".utf8)))
 			}
 		case .waitFuture:
 			guard let future = self.stack.last?.value else {
 				throw ExecutionError.PoppedEmptyStack
 			}
 			signal = future.map { _ in }
-				.thenIfErrorThrowing {
+				.flatMapErrorThrowing {
 					if $0 is ClusterDatabaseConnection.FdbApiError {
 						return Void()
 					}
@@ -783,7 +783,7 @@ public final class StackMachine {
 			signal = self.popAndCast().map { (count: Int) in
 				let futures = (0 ..< count).map { _ in self.pop() }
 				let combinedValues = EventLoopFuture<Any>.accumulating(futures: futures, eventLoop: self.connection.eventLoop)
-				let result = combinedValues.thenThrowing { entries -> Data in
+				let result = combinedValues.flatMapThrowing { entries -> Data in
 					var result = Tuple()
 					for entry in entries {
 						result.append(contentsOf: try self.unsafeTuplePack(entry))
@@ -793,7 +793,7 @@ public final class StackMachine {
 				self.push(future: result)
 			}
 		case .tupleUnpack:
-			signal = popAndCast().thenThrowing { (tuple: Tuple) in
+			signal = popAndCast().flatMapThrowing { (tuple: Tuple) in
 				for index in 0 ..< tuple.count {
 					let subTuple = try tuple.read(range: index ..< index + 1)
 					self.push(value: subTuple.databaseValue.data)
@@ -803,7 +803,7 @@ public final class StackMachine {
 			signal = popAndCast().map { (count: Int) in
 				let futures = (0 ..< count).map { _ in self.pop() as EventLoopFuture<Any> }
 				let combinedFuture = EventLoopFuture<Any>.accumulating(futures: futures, eventLoop: self.connection.eventLoop)
-				let tuple = combinedFuture.thenThrowing { (entries: [Any]) -> Range<Tuple> in
+				let tuple = combinedFuture.flatMapThrowing { (entries: [Any]) -> Range<Tuple> in
 					var tuple = Tuple()
 					for entry in entries {
 						tuple.append(contentsOf: try self.unsafeTuplePack(entry))
@@ -815,7 +815,7 @@ public final class StackMachine {
 				self.push(future: tuple.map { $0.upperBound.databaseValue.data })
 			}
 		case .tupleSort:
-			let values = popAndCast().then { (count: Int) -> EventLoopFuture<[Data]> in
+			let values = popAndCast().flatMap { (count: Int) -> EventLoopFuture<[Data]> in
 				let futures = (0 ..< count).map { _ in
 					self.pop().map { $0 as! Data }
 				}
@@ -848,7 +848,7 @@ public final class StackMachine {
 		case .decodeFloat:
 			signal = self.popAndCast().map { (value: Float32) in
 				let bits = value.bitPattern
-				let data = Data(bytes: [
+				let data = Data([
 					UInt8((bits >> 24) & 0xFF),
 					UInt8((bits >> 16) & 0xFF),
 					UInt8((bits >> 8) & 0xFF),
@@ -859,7 +859,7 @@ public final class StackMachine {
 		case .decodeDouble:
 			signal = self.popAndCast().map { (value: Float64) in
 				let bits = value.bitPattern
-				let data = Data(bytes: [
+				let data = Data([
 					UInt8((bits >> 56) & 0xFF),
 					UInt8((bits >> 48) & 0xFF),
 					UInt8((bits >> 40) & 0xFF),
@@ -876,17 +876,17 @@ public final class StackMachine {
 				startStackMachineInThread(prefix: prefixData.data)
 			}
 		case .waitEmpty:
-			signal = self.popAndCast().then { (start: DatabaseValue) -> EventLoopFuture<Void> in
+			signal = self.popAndCast().flatMap { (start: DatabaseValue) -> EventLoopFuture<Void> in
 				var end = DatabaseValue(start.data)
 				end.data.append(0xFF)
 				return self.connection.transaction {
-					return $0.read(range: start ..< end).thenThrowing { results in
+					return $0.read(range: start ..< end).flatMapThrowing { results in
 						if results.rows.count == 0 {
 							throw ClusterDatabaseConnection.FdbApiError(1020)
 						}
 					}
 					}.map { _ in
-						self.push(value: Data(bytes: Array("WAITED_FOR_EMPTY".utf8)))
+						self.push(value: Data(Array("WAITED_FOR_EMPTY".utf8)))
 				}
 			}
 		case .unitTests:

@@ -92,7 +92,7 @@ extension DatabaseConnection {
 		
 		return EventLoopFuture<T>.retrying(eventLoop: eventLoop, onError: transaction.attemptRetry) {
 			return try block(transaction)
-				.then { v in return self.commit(transaction: transaction)
+				.flatMap { v in return self.commit(transaction: transaction)
 					.map { _ in return v }
 			}
 		}
