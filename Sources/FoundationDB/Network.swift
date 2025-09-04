@@ -83,4 +83,32 @@ class FdbNetwork {
         networkThread = nil
         networkSetup = false
     }
+
+    func setNetworkOption(_ option: Fdb.NetworkOption, value: Data? = nil) throws {
+        let error: Int32
+        if let value = value {
+            error = value.withUnsafeBytes { bytes in
+                fdb_network_set_option(
+                    FDBNetworkOption(option.rawValue),
+                    bytes.bindMemory(to: UInt8.self).baseAddress,
+                    Int32(value.count)
+                )
+            }
+        } else {
+            error = fdb_network_set_option(FDBNetworkOption(option.rawValue), nil, 0)
+        }
+
+        if error != 0 {
+            throw FdbError(code: error)
+        }
+    }
+
+    func setNetworkOption(_ option: Fdb.NetworkOption, value: String) throws {
+        try setNetworkOption(option, value: value.data(using: .utf8))
+    }
+
+    func setNetworkOption(_ option: Fdb.NetworkOption, value: Int) throws {
+        let data = withUnsafeBytes(of: Int64(value)) { Data($0) }
+        try setNetworkOption(option, value: data)
+    }
 }

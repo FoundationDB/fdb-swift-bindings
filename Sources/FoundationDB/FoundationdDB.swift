@@ -81,6 +81,45 @@ public protocol ITransaction {
     func getReadVersion() async throws -> Int64
 
     func atomicOp(key: Fdb.Key, param: Fdb.Value, mutationType: Fdb.MutationType)
+
+    // MARK: - Transaction option methods
+    func setOption(_ option: Fdb.TransactionOption, value: Fdb.Value?) throws
+    func setOption(_ option: Fdb.TransactionOption, value: String) throws
+    func setOption(_ option: Fdb.TransactionOption, value: Int) throws
+}
+
+public extension IDatabase {
+    func withTransaction<T: Sendable>(
+        _ operation: (ITransaction) async throws -> T
+    ) async throws -> T {
+        let maxRetries = 100 // TODO: Remove this.
+
+        for attempt in 0 ..< maxRetries {
+            let transaction = try createTransaction()
+
+            do {
+                let result = try await operation(transaction)
+                let committed = try await transaction.commit()
+
+                if committed {
+                    return result
+                }
+            } catch {
+                // TODO: If user wants to cancel, don't retry.
+                transaction.cancel()
+
+                if let fdbError = error as? FdbError, fdbError.isRetryable {
+                    if attempt < maxRetries - 1 {
+                        continue
+                    }
+                }
+
+                throw error
+            }
+        }
+
+        throw FdbError(.transactionTooOld)
+    }
 }
 
 public extension ITransaction {
@@ -152,38 +191,108 @@ public extension ITransaction {
     ) async throws -> ResultRange {
         try await getRange(beginKey: beginKey, endKey: endKey, limit: limit, snapshot: snapshot)
     }
+
+    // MARK: - Transaction option convenience overloads
+    
+    func setOption(_ option: Fdb.TransactionOption) throws {
+        try setOption(option, value: nil)
+    }
+
+    public func setOption(_ option: Fdb.TransactionOption, value: String) throws {
+        let valueBytes = [UInt8](value.utf8)
+        try setOption(option, value: valueBytes)
+    }
+
+    public func setOption(_ option: Fdb.TransactionOption, value: Int) throws {
+        let valueBytes = withUnsafeBytes(of: Int64(value)) { [UInt8]($0) }
+        try setOption(option, value: valueBytes)
+    }
+
 }
 
-public extension IDatabase {
-    func withTransaction<T: Sendable>(
-        _ operation: (ITransaction) async throws -> T
-    ) async throws -> T {
-        let maxRetries = 100 // TODO: Remove this.
+public extension ITransaction {
+    // MARK: - Convenience methods for common transaction options
+    func setTimeout(_ milliseconds: Int) throws {
+        try setOption(.timeout, value: milliseconds)
+    }
 
-        for attempt in 0 ..< maxRetries {
-            let transaction = try createTransaction()
+    func setRetryLimit(_ limit: Int) throws {
+        try setOption(.retryLimit, value: limit)
+    }
 
-            do {
-                let result = try await operation(transaction)
-                let committed = try await transaction.commit()
+    func setMaxRetryDelay(_ milliseconds: Int) throws {
+        try setOption(.maxRetryDelay, value: milliseconds)
+    }
 
-                if committed {
-                    return result
-                }
-            } catch {
-                // TODO: If user wants to cancel, don't retry.
-                transaction.cancel()
+    func setSizeLimit(_ bytes: Int) throws {
+        try setOption(.sizeLimit, value: bytes)
+    }
 
-                if let fdbError = error as? FdbError, fdbError.isRetryable {
-                    if attempt < maxRetries - 1 {
-                        continue
-                    }
-                }
+    func setIdempotencyId(_ id: Fdb.Value) throws {
+        try setOption(.idempotencyId, value: id)
+    }
 
-                throw error
-            }
-        }
+    func enableAutomaticIdempotency() throws {
+        try setOption(.automaticIdempotency)
+    }
 
-        throw FdbError(.transactionTooOld)
+    func disableReadYourWrites() throws {
+        try setOption(.readYourWritesDisable)
+    }
+
+    func enableSnapshotReadYourWrites() throws {
+        try setOption(.snapshotRywEnable)
+    }
+
+    func disableSnapshotReadYourWrites() throws {
+        try setOption(.snapshotRywDisable)
+    }
+
+    func setPriorityBatch() throws {
+        try setOption(.priorityBatch)
+    }
+
+    func setPrioritySystemImmediate() throws {
+        try setOption(.prioritySystemImmediate)
+    }
+
+    func enableCausalWriteRisky() throws {
+        try setOption(.causalWriteRisky)
+    }
+
+    func enableCausalReadRisky() throws {
+        try setOption(.causalReadRisky)
+    }
+
+    func disableCausalRead() throws {
+        try setOption(.causalReadDisable)
+    }
+
+    func enableAccessSystemKeys() throws {
+        try setOption(.accessSystemKeys)
+    }
+
+    func enableReadSystemKeys() throws {
+        try setOption(.readSystemKeys)
+    }
+
+    func enableRawAccess() throws {
+        try setOption(.rawAccess)
+    }
+
+    func addTag(_ tag: String) throws {
+        try setOption(.tag, value: tag)
+    }
+
+    func addAutoThrottleTag(_ tag: String) throws {
+        try setOption(.autoThrottleTag, value: tag)
+    }
+
+    func setDebugTransactionIdentifier(_ identifier: String) throws {
+        try setOption(.debugTransactionIdentifier, value: identifier)
+    }
+
+    func enableLogTransaction() throws {
+        try setOption(.logTransaction)
     }
 }

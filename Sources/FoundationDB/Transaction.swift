@@ -96,6 +96,26 @@ public class FdbTransaction: ITransaction {
         }
     }
 
+    public func setOption(_ option: Fdb.TransactionOption, value: Fdb.Value?) throws {
+        let error: Int32
+        if let value = value {
+            error = value.withUnsafeBytes { bytes in
+                fdb_transaction_set_option(
+                    transaction,
+                    FDBTransactionOption(option.rawValue),
+                    bytes.bindMemory(to: UInt8.self).baseAddress,
+                    Int32(value.count)
+                )
+            }
+        } else {
+            error = fdb_transaction_set_option(transaction, FDBTransactionOption(option.rawValue), nil, 0)
+        }
+
+        if error != 0 {
+            throw FdbError(code: error)
+        }
+    }
+
     public func getKey(selector: Fdb.KeySelector, snapshot: Bool) async throws -> Fdb.Key? {
         try await selector.key.withUnsafeBytes { keyBytes in
             Future<ResultKey>(

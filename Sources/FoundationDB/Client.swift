@@ -18,6 +18,7 @@
  * limitations under the License.
  */
 import CFoundationDB
+import Foundation
 
 // TODO: Remove hard-coded error codes.
 public class FdbClient {
@@ -28,6 +29,68 @@ public class FdbClient {
     @MainActor
     public static func initialize(version: Int32 = APIVersion.current) async throws {
         try FdbNetwork.shared.initialize(version: version)
+    }
+
+    @MainActor
+    public static func setNetworkOption(_ option: Fdb.NetworkOption, value: Data? = nil) throws {
+        try FdbNetwork.shared.setNetworkOption(option, value: value)
+    }
+
+    @MainActor
+    public static func setNetworkOption(_ option: Fdb.NetworkOption, value: String) throws {
+        try FdbNetwork.shared.setNetworkOption(option, value: value)
+    }
+
+    @MainActor
+    public static func setNetworkOption(_ option: Fdb.NetworkOption, value: Int) throws {
+        try FdbNetwork.shared.setNetworkOption(option, value: value)
+    }
+
+    // MARK: - Convenience methods for common network options
+
+    @MainActor
+    public static func enableTrace(directory: String) throws {
+        try setNetworkOption(.traceEnable, value: directory)
+    }
+
+    @MainActor
+    public static func setTraceRollSize(_ sizeInBytes: Int) throws {
+        try setNetworkOption(.traceRollSize, value: sizeInBytes)
+    }
+
+    @MainActor
+    public static func setTraceLogGroup(_ logGroup: String) throws {
+        try setNetworkOption(.traceLogGroup, value: logGroup)
+    }
+
+    @MainActor
+    public static func setTraceFormat(_ format: String) throws {
+        try setNetworkOption(.traceFormat, value: format)
+    }
+
+    @MainActor
+    public static func setKnob(_ knobSetting: String) throws {
+        try setNetworkOption(.knob, value: knobSetting)
+    }
+
+    @MainActor
+    public static func setTLSCertPath(_ path: String) throws {
+        try setNetworkOption(.tlsCertPath, value: path)
+    }
+
+    @MainActor
+    public static func setTLSKeyPath(_ path: String) throws {
+        try setNetworkOption(.tlsKeyPath, value: path)
+    }
+
+    @MainActor
+    public static func setClientTempDirectory(_ path: String) throws {
+        try setNetworkOption(.clientTmpDir, value: path)
+    }
+
+    @MainActor
+    public static func disableClientStatisticsLogging() throws {
+        try setNetworkOption(.disableClientStatisticsLogging, value: nil as Data?)
     }
 
     public static func openDatabase(clusterFilePath: String? = nil) throws -> FdbDatabase {
