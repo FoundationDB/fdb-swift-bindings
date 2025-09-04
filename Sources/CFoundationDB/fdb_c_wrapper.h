@@ -1,9 +1,9 @@
 /*
- * main.swift
+ * fdb_c_wrapper.h
  *
  * This source file is part of the FoundationDB open source project
  *
- * Copyright 2016-2018 Apple Inc. and the FoundationDB project authors
+ * Copyright 2016-2025 Apple Inc. and the FoundationDB project authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,16 +18,10 @@
  * limitations under the License.
  */
 
-import FoundationDB
-import Foundation
-import FoundationDBBindingTest
-import NIO
+#ifndef FDB_C_WRAPPER_H
+#define FDB_C_WRAPPER_H
 
-#if os(OSX)
-let projectDir = ProcessInfo().environment["PROJECT_DIR"] ?? "."
-#else
-let projectDir = "."
+#define FDB_API_VERSION 740
+#include <foundationdb/fdb_c.h>
+
 #endif
-let eventLoop = EmbeddedEventLoop()
-StackMachine.run(eventLoop: eventLoop, arguments: CommandLine.arguments, projectDirectory: projectDir)
-eventLoop.run()

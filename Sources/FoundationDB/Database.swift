@@ -1,5 +1,5 @@
 /*
- * Package.swift
+ * Database.swift
  *
  * This source file is part of the FoundationDB open source project
  *
@@ -17,27 +17,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import CFoundationDB
 
-// swift-tools-version: 6.0
-import PackageDescription
+public class FdbDatabase: IDatabase {
+    private let database: OpaquePointer
 
-let package = Package(
-    name: "FoundationDB",
-    products: [
-        .library(name: "FoundationDB", targets: ["FoundationDB"]),
-    ],
-    targets: [
-        .systemLibrary(
-            name: "CFoundationDB"
-        ),
-        .target(
-            name: "FoundationDB",
-            dependencies: ["CFoundationDB"],
-            path: "Sources/FoundationDB"
-        ),
-        .testTarget(
-            name: "FoundationDBTests",
-            dependencies: ["FoundationDB"]
-        ),
-    ]
-)
+    init(database: OpaquePointer) {
+        self.database = database
+    }
+
+    deinit {
+        fdb_database_destroy(database)
+    }
+
+    public func createTransaction() throws -> any ITransaction {
+        var transaction: OpaquePointer?
+        let error = fdb_database_create_transaction(database, &transaction)
+        if error != 0 {
+            throw FdbError(code: error)
+        }
+
+        guard let tr = transaction else {
+            throw FdbError(.internalError)
+        }
+
+        return FdbTransaction(transaction: tr)
+    }
+}

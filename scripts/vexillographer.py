@@ -3,7 +3,7 @@
 #
 # This source file is part of the FoundationDB open source project
 #
-# Copyright 2016-2018 Apple Inc. and the FoundationDB project authors
+# Copyright 2016-2025 Apple Inc. and the FoundationDB project authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,6 +32,11 @@ must define the following methods:
         def print_header_warning(self):
             # This method prints the warning at the top of the file that tells people
             # not to edit it by hand.
+
+            pass
+
+        def print_footer(self):
+            # This method prints the warning at the end of the file.
 
             pass
 
@@ -150,3 +155,5 @@ class Vexillographer(object):
                 )
 
             self.emitter.write_scope_end()
+
+        self.emitter.print_footer()
