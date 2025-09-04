@@ -18,7 +18,12 @@
  * limitations under the License.
  */
 import CFoundationDB
-import Foundation
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // TODO: stopNetwork at deinit.
 @MainActor
@@ -26,7 +31,7 @@ class FdbNetwork {
     static let shared = FdbNetwork()
 
     private var networkSetup = false
-    private var networkThread: Thread?
+    private var networkThread: pthread_t = pthread_t()
 
     func initialize(version: Int32) throws {
         if networkSetup {
@@ -64,13 +69,18 @@ class FdbNetwork {
             fatalError("Network must be setup before starting network thread")
         }
 
-        networkThread = Thread {
+        var thread = pthread_t()
+        let result = pthread_create(&thread, nil, { _ in
             let error = fdb_run_network()
             if error != 0 {
                 print("Network thread error: \(FdbError(code: error).description)")
             }
+            return nil
+        }, nil)
+
+        if result == 0 {
+            networkThread = thread
         }
-        networkThread?.start()
     }
 
     func stopNetwork() throws {
@@ -79,12 +89,13 @@ class FdbNetwork {
             throw FdbError(code: error)
         }
 
-        networkThread?.cancel() // TODO: Is there a join() method?
-        networkThread = nil
+        if networkSetup {
+            pthread_join(networkThread, nil)
+        }
         networkSetup = false
     }
 
-    func setNetworkOption(_ option: Fdb.NetworkOption, value: Data? = nil) throws {
+    func setNetworkOption(_ option: Fdb.NetworkOption, value: [UInt8]? = nil) throws {
         let error: Int32
         if let value = value {
             error = value.withUnsafeBytes { bytes in
@@ -104,11 +115,11 @@ class FdbNetwork {
     }
 
     func setNetworkOption(_ option: Fdb.NetworkOption, value: String) throws {
-        try setNetworkOption(option, value: value.data(using: .utf8))
+        try setNetworkOption(option, value: [UInt8](value.utf8))
     }
 
     func setNetworkOption(_ option: Fdb.NetworkOption, value: Int) throws {
-        let data = withUnsafeBytes(of: Int64(value)) { Data($0) }
-        try setNetworkOption(option, value: data)
+        let valueBytes = withUnsafeBytes(of: Int64(value)) { [UInt8]($0) }
+        try setNetworkOption(option, value: valueBytes)
     }
 }

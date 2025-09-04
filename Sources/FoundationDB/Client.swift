@@ -18,7 +18,6 @@
  * limitations under the License.
  */
 import CFoundationDB
-import Foundation
 
 // TODO: Remove hard-coded error codes.
 public class FdbClient {
@@ -32,7 +31,7 @@ public class FdbClient {
     }
 
     @MainActor
-    public static func setNetworkOption(_ option: Fdb.NetworkOption, value: Data? = nil) throws {
+    public static func setNetworkOption(_ option: Fdb.NetworkOption, value: [UInt8]? = nil) throws {
         try FdbNetwork.shared.setNetworkOption(option, value: value)
     }
 
@@ -90,7 +89,7 @@ public class FdbClient {
 
     @MainActor
     public static func disableClientStatisticsLogging() throws {
-        try setNetworkOption(.disableClientStatisticsLogging, value: nil as Data?)
+        try setNetworkOption(.disableClientStatisticsLogging, value: nil as [UInt8]?)
     }
 
     public static func openDatabase(clusterFilePath: String? = nil) throws -> FdbDatabase {

@@ -198,12 +198,12 @@ public extension ITransaction {
         try setOption(option, value: nil)
     }
 
-    public func setOption(_ option: Fdb.TransactionOption, value: String) throws {
+    func setOption(_ option: Fdb.TransactionOption, value: String) throws {
         let valueBytes = [UInt8](value.utf8)
         try setOption(option, value: valueBytes)
     }
 
-    public func setOption(_ option: Fdb.TransactionOption, value: Int) throws {
+    func setOption(_ option: Fdb.TransactionOption, value: Int) throws {
         let valueBytes = withUnsafeBytes(of: Int64(value)) { [UInt8]($0) }
         try setOption(option, value: valueBytes)
     }
