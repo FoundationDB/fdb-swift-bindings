@@ -499,5 +499,4 @@ extension Fdb {
 		case retryableNotCommitted = 50002
 
 	}
-
 }

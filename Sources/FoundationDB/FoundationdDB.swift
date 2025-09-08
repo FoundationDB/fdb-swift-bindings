@@ -193,7 +193,7 @@ public extension ITransaction {
     }
 
     // MARK: - Transaction option convenience overloads
-    
+
     func setOption(_ option: Fdb.TransactionOption) throws {
         try setOption(option, value: nil)
     }

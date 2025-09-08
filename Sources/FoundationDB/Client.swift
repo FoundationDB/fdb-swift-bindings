@@ -30,6 +30,20 @@ public class FdbClient {
         try FdbNetwork.shared.initialize(version: version)
     }
 
+    public static func openDatabase(clusterFilePath: String? = nil) throws -> FdbDatabase {
+        var database: OpaquePointer?
+        let error = fdb_create_database(clusterFilePath, &database)
+        if error != 0 {
+            throw FdbError(code: error)
+        }
+
+        guard let db = database else {
+            throw FdbError(.clientError)
+        }
+
+        return FdbDatabase(database: db)
+    }
+
     @MainActor
     public static func setNetworkOption(_ option: Fdb.NetworkOption, value: [UInt8]? = nil) throws {
         try FdbNetwork.shared.setNetworkOption(option, value: value)
@@ -90,19 +104,5 @@ public class FdbClient {
     @MainActor
     public static func disableClientStatisticsLogging() throws {
         try setNetworkOption(.disableClientStatisticsLogging, value: nil as [UInt8]?)
-    }
-
-    public static func openDatabase(clusterFilePath: String? = nil) throws -> FdbDatabase {
-        var database: OpaquePointer?
-        let error = fdb_create_database(clusterFilePath, &database)
-        if error != 0 {
-            throw FdbError(code: error)
-        }
-
-        guard let db = database else {
-            throw FdbError(.clientError)
-        }
-
-        return FdbDatabase(database: db)
     }
 }
