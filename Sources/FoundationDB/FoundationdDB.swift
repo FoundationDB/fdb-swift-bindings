@@ -125,6 +125,17 @@ public protocol ITransaction {
     /// - Throws: `FdbError` if the operation fails.
     func getKey(selector: Fdb.KeySelector, snapshot: Bool) async throws -> Fdb.Key?
 
+    /// Returns an AsyncSequence that yields key-value pairs within a range.
+    ///
+    /// - Parameters:
+    ///   - beginSelector: The key selector for the start of the range.
+    ///   - endSelector: The key selector for the end of the range.
+    ///   - snapshot: Whether to perform a snapshot read.
+    /// - Returns: An async sequence that yields key-value pairs.
+    func readRange(
+        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, snapshot: Bool
+    ) -> Fdb.AsyncKVSequence
+
     /// Retrieves key-value pairs within a range using selectable endpoints.
     ///
     /// - Parameters:
@@ -176,17 +187,6 @@ public protocol ITransaction {
     func getRange(
         beginKey: Fdb.Key, endKey: Fdb.Key, limit: Int32, snapshot: Bool
     ) async throws -> ResultRange
-
-    /// Returns an AsyncSequence that yields key-value pairs within a range.
-    ///
-    /// - Parameters:
-    ///   - beginSelector: The key selector for the start of the range.
-    ///   - endSelector: The key selector for the end of the range.
-    ///   - snapshot: Whether to perform a snapshot read.
-    /// - Returns: An async sequence that yields key-value pairs.
-    func readRange(
-        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, snapshot: Bool
-    ) -> Fdb.AsyncKVSequence
 
     /// Commits the transaction.
     ///
@@ -331,39 +331,15 @@ public extension ITransaction {
         try await getKey(selector: selector, snapshot: snapshot)
     }
 
-    func getRange(
-        begin: Fdb.Selectable, end: Fdb.Selectable, limit: Int32 = 0, snapshot: Bool = false
-    ) async throws -> ResultRange {
-        let beginSelector = begin.toKeySelector()
-        let endSelector = end.toKeySelector()
-        return try await getRange(
-            beginSelector: beginSelector, endSelector: endSelector, limit: limit, snapshot: snapshot
+    func readRange(
+        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, snapshot: Bool = false
+    ) -> Fdb.AsyncKVSequence {
+        Fdb.AsyncKVSequence(
+            transaction: self,
+            beginSelector: beginSelector,
+            endSelector: endSelector,
+            snapshot: snapshot
         )
-    }
-
-    func getRange(
-        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, limit: Int32 = 0,
-        snapshot: Bool = false
-    ) async throws -> ResultRange {
-        try await getRange(
-            beginSelector: beginSelector, endSelector: endSelector, limit: limit, snapshot: snapshot
-        )
-    }
-
-    func getRange(
-        beginKey: String, endKey: String, limit: Int32 = 0, snapshot: Bool = false
-    ) async throws -> ResultRange {
-        let beginKeyBytes = [UInt8](beginKey.utf8)
-        let endKeyBytes = [UInt8](endKey.utf8)
-        return try await getRange(
-            beginKey: beginKeyBytes, endKey: endKeyBytes, limit: limit, snapshot: snapshot
-        )
-    }
-
-    func getRange(
-        beginKey: Fdb.Key, endKey: Fdb.Key, limit: Int32 = 0, snapshot: Bool = false
-    ) async throws -> ResultRange {
-        try await getRange(beginKey: beginKey, endKey: endKey, limit: limit, snapshot: snapshot)
     }
 
     func readRange(
@@ -401,6 +377,41 @@ public extension ITransaction {
         return readRange(
             beginSelector: beginSelector, endSelector: endSelector, snapshot: snapshot
         )
+    }
+
+    func getRange(
+        begin: Fdb.Selectable, end: Fdb.Selectable, limit: Int32 = 0, snapshot: Bool = false
+    ) async throws -> ResultRange {
+        let beginSelector = begin.toKeySelector()
+        let endSelector = end.toKeySelector()
+        return try await getRange(
+            beginSelector: beginSelector, endSelector: endSelector, limit: limit, snapshot: snapshot
+        )
+    }
+
+    func getRange(
+        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, limit: Int32 = 0,
+        snapshot: Bool = false
+    ) async throws -> ResultRange {
+        try await getRange(
+            beginSelector: beginSelector, endSelector: endSelector, limit: limit, snapshot: snapshot
+        )
+    }
+
+    func getRange(
+        beginKey: String, endKey: String, limit: Int32 = 0, snapshot: Bool = false
+    ) async throws -> ResultRange {
+        let beginKeyBytes = [UInt8](beginKey.utf8)
+        let endKeyBytes = [UInt8](endKey.utf8)
+        return try await getRange(
+            beginKey: beginKeyBytes, endKey: endKeyBytes, limit: limit, snapshot: snapshot
+        )
+    }
+
+    func getRange(
+        beginKey: Fdb.Key, endKey: Fdb.Key, limit: Int32 = 0, snapshot: Bool = false
+    ) async throws -> ResultRange {
+        try await getRange(beginKey: beginKey, endKey: endKey, limit: limit, snapshot: snapshot)
     }
 
     func setOption(_ option: Fdb.TransactionOption) throws {

@@ -25,39 +25,38 @@ public extension Fdb {
         let transaction: ITransaction
         let beginSelector: Fdb.KeySelector?
         let endSelector: Fdb.KeySelector?
-        let limit: Int32
         let snapshot: Bool
+        let batchLimit: Int32 = 0
 
         public func makeAsyncIterator() -> AsyncIterator {
             AsyncIterator(
                 transaction: transaction,
                 beginSelector: beginSelector,
                 endSelector: endSelector,
-                limit: limit,
-                snapshot: snapshot
+                snapshot: snapshot,
+                batchLimit: batchLimit
             )
         }
 
         public struct AsyncIterator: AsyncIteratorProtocol {
             private let transaction: ITransaction
-            private let beginSelector: Fdb.KeySelector?
-            private let endSelector: Fdb.KeySelector?
-            private let limit: Int32
-            private let snapshot: Bool
-
-            private var currentResult: ResultRange?
-            private var currentIndex: Int = 0
             private var nextBeginSelector: Fdb.KeySelector?
+            private let endSelector: Fdb.KeySelector?
+            private let snapshot: Bool
+            private let batchLimit: Int32
+
+            private var currentBatch: ResultRange?
+            private var currentIndex: Int = 0
             private var isExhausted: Bool = false
 
-            private var preFetchedResult: ResultRange?
+            private var preFetchedBatch: ResultRange?
             private var shouldPreFetch: Bool = false
 
-            init(transaction: ITransaction, beginSelector: Fdb.KeySelector?, endSelector: Fdb.KeySelector?, limit: Int32, snapshot: Bool) {
+            init(transaction: ITransaction, beginSelector: Fdb.KeySelector?, endSelector: Fdb.KeySelector?, snapshot: Bool, batchLimit: Int32) {
                 self.transaction = transaction
-                self.beginSelector = beginSelector
+                self.nextBeginSelector = beginSelector
                 self.endSelector = endSelector
-                self.limit = limit
+                self.batchLimit = batchLimit
                 self.snapshot = snapshot
             }
 
@@ -66,11 +65,11 @@ public extension Fdb {
                     return nil
                 }
 
-                if currentResult == nil {
+                if currentBatch == nil {
                     try await fetchInitialBatch()
                 }
 
-                guard let result = currentResult else {
+                guard let result = currentBatch else {
                     isExhausted = true
                     return nil
                 }
@@ -79,14 +78,14 @@ public extension Fdb {
                     let keyValue = result.records[currentIndex]
                     currentIndex += 1
 
-                    if currentIndex == result.records.count && result.more && preFetchedResult == nil {
+                    if currentIndex == result.records.count && result.more && preFetchedBatch == nil {
                         shouldPreFetch = true
                     }
 
                     return keyValue
                 }
 
-                if result.more || preFetchedResult != nil {
+                if result.more || preFetchedBatch != nil {
                     try await moveToNextBatch()
                     return try await next()
                 } else {
@@ -96,18 +95,18 @@ public extension Fdb {
             }
 
             private mutating func fetchInitialBatch() async throws {
-                if let begin = beginSelector, let end = endSelector {
-                    currentResult = try await transaction.getRange(
+                if let begin = nextBeginSelector, let end = endSelector {
+                    currentBatch = try await transaction.getRange(
                         beginSelector: begin,
                         endSelector: end,
-                        limit: limit,
+                        limit: batchLimit,
                         snapshot: snapshot
                     )
                 } else {
                     throw FdbError(FdbErrorCode.clientError)
                 }
 
-                if let result = currentResult, !result.records.isEmpty {
+                if let result = currentBatch, !result.records.isEmpty {
                     let lastKey = result.records.last!.0
                     nextBeginSelector = Fdb.KeySelector.firstGreaterThan(lastKey)
                 }
@@ -116,14 +115,14 @@ public extension Fdb {
             }
 
             private mutating func moveToNextBatch() async throws {
-                if let preFetched = preFetchedResult {
-                    currentResult = preFetched
-                    preFetchedResult = nil
+                if let preFetched = preFetchedBatch {
+                    currentBatch = preFetched
+                    preFetchedBatch = nil
                 } else if let nextBegin = nextBeginSelector, let end = endSelector {
-                    currentResult = try await transaction.getRange(
+                    currentBatch = try await transaction.getRange(
                         beginSelector: nextBegin,
                         endSelector: end,
-                        limit: limit,
+                        limit: batchLimit,
                         snapshot: snapshot
                     )
                 } else {
@@ -133,7 +132,7 @@ public extension Fdb {
 
                 currentIndex = 0
 
-                if let result = currentResult, !result.records.isEmpty {
+                if let result = currentBatch, !result.records.isEmpty {
                     let lastKey = result.records.last!.0
                     nextBeginSelector = Fdb.KeySelector.firstGreaterThan(lastKey)
 
@@ -151,10 +150,10 @@ public extension Fdb {
                     return
                 }
 
-                preFetchedResult = try await transaction.getRange(
+                preFetchedBatch = try await transaction.getRange(
                     beginSelector: nextBegin,
                     endSelector: end,
-                    limit: limit,
+                    limit: batchLimit,
                     snapshot: snapshot
                 )
             }

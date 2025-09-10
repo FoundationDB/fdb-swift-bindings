@@ -217,16 +217,4 @@ public class FdbTransaction: ITransaction {
 
         return try await future.getAsync() ?? ResultRange(records: [], more: false)
     }
-
-    public func readRange(
-        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, snapshot: Bool = false
-    ) -> Fdb.AsyncKVSequence {
-        Fdb.AsyncKVSequence(
-            transaction: self,
-            beginSelector: beginSelector,
-            endSelector: endSelector,
-            limit: 0,
-            snapshot: snapshot
-        )
-    }
 }
