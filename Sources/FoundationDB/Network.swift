@@ -20,9 +20,9 @@
 import CFoundationDB
 
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 
 // TODO: stopNetwork at deinit.
@@ -31,7 +31,7 @@ class FdbNetwork {
     static let shared = FdbNetwork()
 
     private var networkSetup = false
-    private var networkThread: pthread_t = pthread_t()
+    private var networkThread: pthread_t = .init()
 
     func initialize(version: Int32) throws {
         if networkSetup {

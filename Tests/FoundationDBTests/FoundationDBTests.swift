@@ -575,7 +575,7 @@ func getRangeWithStringSelectorKeys() async throws {
 
     // Convert back to strings for easier testing
     let keys = result.records.map { String(bytes: $0.0) }.sorted()
-    let _ = result.records.map { String(bytes: $0.1) } // values not used in this test
+    _ = result.records.map { String(bytes: $0.1) } // values not used in this test
 
     #expect(keys.contains("test_str_selector_001"), "Should contain first key")
     #expect(keys.contains("test_str_selector_002"), "Should contain second key")
@@ -1113,11 +1113,11 @@ func networkOptionMethods() throws {
     // This would normally throw if the method signature was wrong
 
     // Test String parameter
-    let _ = "test_string"
+    _ = "test_string"
     // This would normally throw if the method signature was wrong
 
     // Test Int parameter
-    let _ = 1048576
+    _ = 1_048_576
     // This would normally throw if the method signature was wrong
 
     // Test no parameter (for boolean options)
@@ -1178,7 +1178,7 @@ func transactionOptions() async throws {
     try transaction.setTimeout(30000) // 30 seconds
     try transaction.setRetryLimit(10)
     try transaction.setMaxRetryDelay(5000) // 5 seconds
-    try transaction.setSizeLimit(1000000) // 1MB
+    try transaction.setSizeLimit(1_000_000) // 1MB
 
     // Test boolean options
     try transaction.enableAutomaticIdempotency()

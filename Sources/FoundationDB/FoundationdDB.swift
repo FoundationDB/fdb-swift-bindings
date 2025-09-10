@@ -67,6 +67,11 @@ public protocol ITransaction {
         beginKey: Fdb.Key, endKey: Fdb.Key, limit: Int32, snapshot: Bool
     ) async throws -> ResultRange
 
+    /// Returns an AsyncSequence that yields key-value pairs within a range.
+    func readRange(
+        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, limit: Int32, snapshot: Bool
+    ) -> Fdb.AsyncKVSequence
+
     /// Commits the transaction
     func commit() async throws -> Bool
     /// Cancels the transaction
@@ -83,6 +88,7 @@ public protocol ITransaction {
     func atomicOp(key: Fdb.Key, param: Fdb.Value, mutationType: Fdb.MutationType)
 
     // MARK: - Transaction option methods
+
     func setOption(_ option: Fdb.TransactionOption, value: Fdb.Value?) throws
     func setOption(_ option: Fdb.TransactionOption, value: String) throws
     func setOption(_ option: Fdb.TransactionOption, value: Int) throws
@@ -192,8 +198,6 @@ public extension ITransaction {
         try await getRange(beginKey: beginKey, endKey: endKey, limit: limit, snapshot: snapshot)
     }
 
-    // MARK: - Transaction option convenience overloads
-
     func setOption(_ option: Fdb.TransactionOption) throws {
         try setOption(option, value: nil)
     }
@@ -207,11 +211,11 @@ public extension ITransaction {
         let valueBytes = withUnsafeBytes(of: Int64(value)) { [UInt8]($0) }
         try setOption(option, value: valueBytes)
     }
-
 }
 
 public extension ITransaction {
     // MARK: - Convenience methods for common transaction options
+
     func setTimeout(_ milliseconds: Int) throws {
         try setOption(.timeout, value: milliseconds)
     }
