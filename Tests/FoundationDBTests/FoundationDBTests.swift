@@ -269,7 +269,8 @@ func getKeyWithDifferentSelectors() async throws {
     let selectorGTE = Fdb.KeySelector.firstGreaterOrEqual("test_selector_b")
     let resultGTE = try await readTransaction.getKey(selector: selectorGTE)
     #expect(
-        resultGTE == [UInt8]("test_selector_b".utf8), "firstGreaterOrEqual should find exact key")
+        resultGTE == [UInt8]("test_selector_b".utf8), "firstGreaterOrEqual should find exact key"
+    )
 
     // Test firstGreaterThan
     let selectorGT = Fdb.KeySelector.firstGreaterThan("test_selector_b")
@@ -335,7 +336,8 @@ func testCommit() async throws {
     let retrievedValue = try await readTransaction.getValue(for: "test_commit_key")
     let expectedValue = [UInt8]("test_commit_value".utf8)
     #expect(
-        retrievedValue == expectedValue, "Committed value should be readable in new transaction")
+        retrievedValue == expectedValue, "Committed value should be readable in new transaction"
+    )
 }
 
 // @Test("getVersionstamp")
@@ -449,7 +451,8 @@ func getRangeBytes() async throws {
 
     #expect(!result.more)
     try #require(
-        result.records.count == 2, "Should return 2 key-value pairs (end key is exclusive)")
+        result.records.count == 2, "Should return 2 key-value pairs (end key is exclusive)"
+    )
 
     // Sort results by key for predictable testing
     let sortedResults = result.records.sorted { $0.0.lexicographicallyPrecedes($1.0) }
@@ -471,7 +474,7 @@ func getRangeWithLimit() async throws {
 
     let newTransaction = try database.createTransaction()
     // Set up test data with more entries
-    for i in 1...10 {
+    for i in 1 ... 10 {
         let key = "test_limit_key_" + String.padded(i)
         let value = "limit_value\(i)"
         newTransaction.setValue(value, for: key)
@@ -481,7 +484,8 @@ func getRangeWithLimit() async throws {
     // Test with limit
     let readTransaction = try database.createTransaction()
     let result = try await readTransaction.getRange(
-        beginKey: "test_limit_key_001", endKey: "test_limit_key_999", limit: 3)
+        beginKey: "test_limit_key_001", endKey: "test_limit_key_999", limit: 3
+    )
     #expect(result.records.count == 3, "Should return exactly 3 key-value pairs due to limit")
 
     // Verify we got the first 3 keys
@@ -489,13 +493,16 @@ func getRangeWithLimit() async throws {
 
     #expect(
         String(bytes: sortedResults[0].0) == "test_limit_key_001",
-        "First key should be test_limit_key_001")
+        "First key should be test_limit_key_001"
+    )
     #expect(
         String(bytes: sortedResults[1].0) == "test_limit_key_002",
-        "Second key should be test_limit_key_002")
+        "Second key should be test_limit_key_002"
+    )
     #expect(
         String(bytes: sortedResults[2].0) == "test_limit_key_003",
-        "Third key should be test_limit_key_003")
+        "Third key should be test_limit_key_003"
+    )
 }
 
 @Test("getRange empty range")
@@ -511,7 +518,8 @@ func getRangeEmpty() async throws {
     let newTransaction = try database.createTransaction()
     // Test empty range
     let result = try await newTransaction.getRange(
-        beginKey: "test_empty_start", endKey: "test_empty_end")
+        beginKey: "test_empty_start", endKey: "test_empty_end"
+    )
 
     #expect(result.records.count == 0, "Empty range should return no results")
     #expect(result.records.isEmpty, "Results should be empty")
@@ -547,11 +555,13 @@ func getRangeWithKeySelectors() async throws {
     let beginSelector = Fdb.KeySelector.firstGreaterOrEqual(key1)
     let endSelector = Fdb.KeySelector.firstGreaterOrEqual(key3)
     let result = try await readTransaction.getRange(
-        beginSelector: beginSelector, endSelector: endSelector)
+        beginSelector: beginSelector, endSelector: endSelector
+    )
 
     #expect(!result.more)
     try #require(
-        result.records.count == 2, "Should return 2 key-value pairs (end selector is exclusive)")
+        result.records.count == 2, "Should return 2 key-value pairs (end selector is exclusive)"
+    )
 
     // Sort results by key for predictable testing
     let sortedResults = result.records.sorted { $0.0.lexicographicallyPrecedes($1.0) }
@@ -583,14 +593,15 @@ func getRangeWithStringSelectorKeys() async throws {
     let beginSelector = Fdb.KeySelector.firstGreaterOrEqual("test_str_selector_001")
     let endSelector = Fdb.KeySelector.firstGreaterOrEqual("test_str_selector_003")
     let result = try await readTransaction.getRange(
-        beginSelector: beginSelector, endSelector: endSelector)
+        beginSelector: beginSelector, endSelector: endSelector
+    )
 
     #expect(!result.more)
     try #require(result.records.count == 2, "Should return 2 key-value pairs")
 
     // Convert back to strings for easier testing
     let keys = result.records.map { String(bytes: $0.0) }.sorted()
-    _ = result.records.map { String(bytes: $0.1) }  // values not used in this test
+    _ = result.records.map { String(bytes: $0.1) } // values not used in this test
 
     #expect(keys.contains("test_str_selector_001"), "Should contain first key")
     #expect(keys.contains("test_str_selector_002"), "Should contain second key")
@@ -653,9 +664,11 @@ func keySelectorMethods() async throws {
     let endSelector = Fdb.KeySelector.firstGreaterOrEqual("test_offset_999")
 
     let resultGTE = try await readTransaction.getRange(
-        beginSelector: beginSelectorGTE, endSelector: endSelector)
+        beginSelector: beginSelectorGTE, endSelector: endSelector
+    )
     let resultGT = try await readTransaction.getRange(
-        beginSelector: beginSelectorGT, endSelector: endSelector)
+        beginSelector: beginSelectorGT, endSelector: endSelector
+    )
 
     // firstGreaterOrEqual should include test_offset_002
     let keysGTE = resultGTE.records.map { String(bytes: $0.0) }.sorted()
@@ -743,7 +756,8 @@ func withTransactionNonRetryableError() async throws {
     } catch let error as FdbError {
         #expect(
             error.code == FdbErrorCode.transactionCancelled.rawValue,
-            "Should propagate the exact FdbError")
+            "Should propagate the exact FdbError"
+        )
         #expect(!error.isRetryable, "Error should be non-retryable")
     } catch {
         #expect(Bool(false), "Should catch FdbError, got \(error)")
@@ -1153,7 +1167,8 @@ func networkOptionEnumValues() {
     #expect(Fdb.NetworkOption.traceEnable.rawValue == 30, "traceEnable should have value 30")
     #expect(Fdb.NetworkOption.traceRollSize.rawValue == 31, "traceRollSize should have value 31")
     #expect(
-        Fdb.NetworkOption.traceMaxLogsSize.rawValue == 32, "traceMaxLogsSize should have value 32")
+        Fdb.NetworkOption.traceMaxLogsSize.rawValue == 32, "traceMaxLogsSize should have value 32"
+    )
     #expect(Fdb.NetworkOption.traceLogGroup.rawValue == 33, "traceLogGroup should have value 33")
     #expect(Fdb.NetworkOption.traceFormat.rawValue == 34, "traceFormat should have value 34")
     #expect(Fdb.NetworkOption.knob.rawValue == 40, "knob should have value 40")
@@ -1161,7 +1176,8 @@ func networkOptionEnumValues() {
     #expect(Fdb.NetworkOption.tlsKeyPath.rawValue == 46, "tlsKeyPath should have value 46")
     #expect(
         Fdb.NetworkOption.disableClientStatisticsLogging.rawValue == 70,
-        "disableClientStatisticsLogging should have value 70")
+        "disableClientStatisticsLogging should have value 70"
+    )
     #expect(Fdb.NetworkOption.clientTmpDir.rawValue == 91, "clientTmpDir should have value 91")
 }
 
@@ -1198,10 +1214,10 @@ func transactionOptions() async throws {
     transaction.clearRange(beginKey: "test_", endKey: "test`")
 
     // Test setting various transaction options
-    try transaction.setTimeout(30000)  // 30 seconds
+    try transaction.setTimeout(30000) // 30 seconds
     try transaction.setRetryLimit(10)
-    try transaction.setMaxRetryDelay(5000)  // 5 seconds
-    try transaction.setSizeLimit(1_000_000)  // 1MB
+    try transaction.setMaxRetryDelay(5000) // 5 seconds
+    try transaction.setSizeLimit(1_000_000) // 1MB
 
     // Test boolean options
     try transaction.enableAutomaticIdempotency()
@@ -1336,7 +1352,7 @@ func readRangeWithKeySelectors() async throws {
 
     // Set up test data
     let newTransaction = try database.createTransaction()
-    for i in 0...99 {
+    for i in 0 ... 99 {
         let key = "test_read_range_" + String(i).leftPad(toLength: 3, withPad: "0")
         let value = "value_\(i)"
         newTransaction.setValue(value, for: key)
@@ -1349,7 +1365,8 @@ func readRangeWithKeySelectors() async throws {
     let endSelector = Fdb.KeySelector.firstGreaterOrEqual("test_read_range_032")
 
     let asyncSequence = readTransaction.readRange(
-        beginSelector: beginSelector, endSelector: endSelector)
+        beginSelector: beginSelector, endSelector: endSelector
+    )
 
     var count = 0
     for try await kv in asyncSequence {
@@ -1357,11 +1374,10 @@ func readRangeWithKeySelectors() async throws {
         let value = String(bytes: kv.1)
 
         // Verify the keys are in order and as expected
-        let expected_key = "test_read_range_" + String(count+15).leftPad(toLength: 3, withPad: "0")
-        let expected_value = "value_\(count+15)"
+        let expected_key = "test_read_range_" + String(count + 15).leftPad(toLength: 3, withPad: "0")
+        let expected_value = "value_\(count + 15)"
         #expect(key == expected_key)
         #expect(value == expected_value)
-
 
         count += 1
 
@@ -1386,7 +1402,7 @@ func readRangeAsyncIteratorPrefetch() async throws {
 
     // Set up test data - more records to test pre-fetching
     let writeTransaction = try database.createTransaction()
-    for i in 0...149 {
+    for i in 0 ... 149 {
         let key = "test_async_iter_" + String(i).leftPad(toLength: 3, withPad: "0")
         let value = "async_value_\(i)"
         writeTransaction.setValue(value, for: key)
@@ -1399,7 +1415,8 @@ func readRangeAsyncIteratorPrefetch() async throws {
     let endSelector = Fdb.KeySelector.firstGreaterOrEqual("test_async_iter_080")
 
     let asyncSequence = readTransaction.readRange(
-      beginSelector: beginSelector, endSelector: endSelector)
+        beginSelector: beginSelector, endSelector: endSelector
+    )
 
     var records: [(String, String)] = []
     var iterator = asyncSequence.makeAsyncIterator()
@@ -1420,8 +1437,8 @@ func readRangeAsyncIteratorPrefetch() async throws {
     #expect(records.count <= 60, "Should read expected number of records in range")
 
     // Verify records are in order
-    for i in 1..<records.count {
-        #expect(records[i-1].0 < records[i].0, "Records should be in key order")
+    for i in 1 ..< records.count {
+        #expect(records[i - 1].0 < records[i].0, "Records should be in key order")
     }
 
     // Verify first and last records are within expected range

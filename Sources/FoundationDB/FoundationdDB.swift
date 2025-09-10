@@ -50,7 +50,7 @@ public protocol IDatabase {
 /// a FoundationDB transaction, including reads, writes, atomic operations,
 /// and transaction management.
 /// Transaction interface for FoundationDB operations
-public protocol ITransaction {
+public protocol ITransaction: Sendable {
     /// Retrieves a value for the given key.
     ///
     /// - Parameters:
@@ -59,7 +59,7 @@ public protocol ITransaction {
     /// - Returns: The value associated with the key, or nil if not found.
     /// - Throws: `FdbError` if the operation fails.
     func getValue(for key: String, snapshot: Bool) async throws -> Fdb.Value?
-    
+
     /// Retrieves a value for the given key.
     ///
     /// - Parameters:
@@ -75,7 +75,7 @@ public protocol ITransaction {
     ///   - value: The value to set as a byte array.
     ///   - key: The key to associate with the value.
     func setValue(_ value: Fdb.Value, for key: Fdb.Key)
-    
+
     /// Sets a value for the given key.
     ///
     /// - Parameters:
@@ -87,7 +87,7 @@ public protocol ITransaction {
     ///
     /// - Parameter key: The key to remove as a byte array.
     func clear(key: Fdb.Key)
-    
+
     /// Removes a key-value pair from the database.
     ///
     /// - Parameter key: The key to remove as a string.
@@ -99,7 +99,7 @@ public protocol ITransaction {
     ///   - beginKey: The start of the range (inclusive) as a byte array.
     ///   - endKey: The end of the range (exclusive) as a byte array.
     func clearRange(beginKey: Fdb.Key, endKey: Fdb.Key)
-    
+
     /// Removes all key-value pairs in the given range.
     ///
     /// - Parameters:
@@ -115,7 +115,7 @@ public protocol ITransaction {
     /// - Returns: The resolved key, or nil if no key matches.
     /// - Throws: `FdbError` if the operation fails.
     func getKey(selector: Fdb.Selectable, snapshot: Bool) async throws -> Fdb.Key?
-    
+
     /// Resolves a key selector to an actual key.
     ///
     /// - Parameters:
@@ -193,7 +193,7 @@ public protocol ITransaction {
     /// - Returns: `true` if the transaction was successfully committed.
     /// - Throws: `FdbError` if the commit fails.
     func commit() async throws -> Bool
-    
+
     /// Cancels the transaction.
     ///
     /// After calling this method, the transaction cannot be used for further operations.
@@ -211,7 +211,7 @@ public protocol ITransaction {
     ///
     /// - Parameter version: The version to use for snapshot reads.
     func setReadVersion(_ version: Int64)
-    
+
     /// Gets the read version used by this transaction.
     ///
     /// - Returns: The transaction's read version.
@@ -227,7 +227,7 @@ public protocol ITransaction {
     func atomicOp(key: Fdb.Key, param: Fdb.Value, mutationType: Fdb.MutationType)
 
     // MARK: - Transaction option methods
-    
+
     /// Sets a transaction option with an optional value.
     ///
     /// - Parameters:
@@ -235,7 +235,7 @@ public protocol ITransaction {
     ///   - value: Optional byte array value for the option.
     /// - Throws: `FdbError` if the option cannot be set.
     func setOption(_ option: Fdb.TransactionOption, value: Fdb.Value?) throws
-    
+
     /// Sets a transaction option with a string value.
     ///
     /// - Parameters:
@@ -243,7 +243,7 @@ public protocol ITransaction {
     ///   - value: String value for the option.
     /// - Throws: `FdbError` if the option cannot be set.
     func setOption(_ option: Fdb.TransactionOption, value: String) throws
-    
+
     /// Sets a transaction option with an integer value.
     ///
     /// - Parameters:
@@ -349,6 +349,7 @@ public extension ITransaction {
             beginSelector: beginSelector, endSelector: endSelector, snapshot: false
         )
     }
+
     func readRange(
         begin: Fdb.Selectable, end: Fdb.Selectable, snapshot: Bool = false
     ) -> Fdb.AsyncKVSequence {

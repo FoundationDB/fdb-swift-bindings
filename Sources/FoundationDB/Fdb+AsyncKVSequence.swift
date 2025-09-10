@@ -23,8 +23,8 @@ public extension Fdb {
         public typealias Element = KeyValue
 
         let transaction: ITransaction
-        let beginSelector: Fdb.KeySelector?
-        let endSelector: Fdb.KeySelector?
+        let beginSelector: Fdb.KeySelector
+        let endSelector: Fdb.KeySelector
         let snapshot: Bool
         let batchLimit: Int32 = 0
 
@@ -40,24 +40,34 @@ public extension Fdb {
 
         public struct AsyncIterator: AsyncIteratorProtocol {
             private let transaction: ITransaction
-            private var nextBeginSelector: Fdb.KeySelector?
-            private let endSelector: Fdb.KeySelector?
+            private var nextBeginSelector: Fdb.KeySelector
+            private let endSelector: Fdb.KeySelector
             private let snapshot: Bool
             private let batchLimit: Int32
 
-            private var currentBatch: ResultRange?
+            private var currentBatch: ResultRange = .init(records: [], more: true)
             private var currentIndex: Int = 0
-            private var isExhausted: Bool = false
+            private var preFetchTask: Task<ResultRange?, Error>?
 
-            private var preFetchedBatch: ResultRange?
-            private var shouldPreFetch: Bool = false
+            private var isExhausted: Bool {
+                currentBatchExhausted && !currentBatch.more
+            }
 
-            init(transaction: ITransaction, beginSelector: Fdb.KeySelector?, endSelector: Fdb.KeySelector?, snapshot: Bool, batchLimit: Int32) {
+            private var currentBatchExhausted: Bool {
+                currentIndex >= currentBatch.records.count
+            }
+
+            init(
+                transaction: ITransaction, beginSelector: Fdb.KeySelector,
+                endSelector: Fdb.KeySelector, snapshot: Bool, batchLimit: Int32
+            ) {
                 self.transaction = transaction
-                self.nextBeginSelector = beginSelector
+                nextBeginSelector = beginSelector
                 self.endSelector = endSelector
                 self.batchLimit = batchLimit
                 self.snapshot = snapshot
+
+                startBackgroundPreFetch()
             }
 
             public mutating func next() async throws -> KeyValue? {
@@ -65,97 +75,48 @@ public extension Fdb {
                     return nil
                 }
 
-                if currentBatch == nil {
-                    try await fetchInitialBatch()
+                if currentBatchExhausted {
+                    try await updateCurrentBatch()
                 }
 
-                guard let result = currentBatch else {
-                    isExhausted = true
+                if currentBatchExhausted {
+                    // If last fetch didn't bring any new records, we've read everything.
                     return nil
                 }
 
-                if currentIndex < result.records.count {
-                    let keyValue = result.records[currentIndex]
-                    currentIndex += 1
+                let keyValue = currentBatch.records[currentIndex]
+                currentIndex += 1
+                return keyValue
+            }
 
-                    if currentIndex == result.records.count && result.more && preFetchedBatch == nil {
-                        shouldPreFetch = true
-                    }
-
-                    return keyValue
+            private mutating func updateCurrentBatch() async throws {
+                guard let nextBatch = try await preFetchTask?.value else {
+                    throw FdbError(.clientError)
                 }
 
-                if result.more || preFetchedBatch != nil {
-                    try await moveToNextBatch()
-                    return try await next()
+                assert(currentIndex >= currentBatch.records.count)
+                currentBatch = nextBatch
+                currentIndex = 0
+
+                if !currentBatch.records.isEmpty, currentBatch.more {
+                    let lastKey = nextBatch.records.last!.0
+                    nextBeginSelector = Fdb.KeySelector.firstGreaterThan(lastKey)
+                    startBackgroundPreFetch()
                 } else {
-                    isExhausted = true
-                    return nil
+                    preFetchTask = nil
                 }
             }
 
-            private mutating func fetchInitialBatch() async throws {
-                if let begin = nextBeginSelector, let end = endSelector {
-                    currentBatch = try await transaction.getRange(
-                        beginSelector: begin,
-                        endSelector: end,
+            private mutating func startBackgroundPreFetch() {
+                preFetchTask = Task {
+                    [transaction, nextBeginSelector, endSelector, batchLimit, snapshot] in
+                    return try await transaction.getRange(
+                        beginSelector: nextBeginSelector,
+                        endSelector: endSelector,
                         limit: batchLimit,
                         snapshot: snapshot
                     )
-                } else {
-                    throw FdbError(FdbErrorCode.clientError)
                 }
-
-                if let result = currentBatch, !result.records.isEmpty {
-                    let lastKey = result.records.last!.0
-                    nextBeginSelector = Fdb.KeySelector.firstGreaterThan(lastKey)
-                }
-
-                currentIndex = 0
-            }
-
-            private mutating func moveToNextBatch() async throws {
-                if let preFetched = preFetchedBatch {
-                    currentBatch = preFetched
-                    preFetchedBatch = nil
-                } else if let nextBegin = nextBeginSelector, let end = endSelector {
-                    currentBatch = try await transaction.getRange(
-                        beginSelector: nextBegin,
-                        endSelector: end,
-                        limit: batchLimit,
-                        snapshot: snapshot
-                    )
-                } else {
-                    isExhausted = true
-                    return
-                }
-
-                currentIndex = 0
-
-                if let result = currentBatch, !result.records.isEmpty {
-                    let lastKey = result.records.last!.0
-                    nextBeginSelector = Fdb.KeySelector.firstGreaterThan(lastKey)
-
-                    if shouldPreFetch && result.more {
-                        try await preFetchNextBatch()
-                        shouldPreFetch = false
-                    }
-                } else {
-                    isExhausted = true
-                }
-            }
-
-            private mutating func preFetchNextBatch() async throws {
-                guard let nextBegin = nextBeginSelector, let end = endSelector else {
-                    return
-                }
-
-                preFetchedBatch = try await transaction.getRange(
-                    beginSelector: nextBegin,
-                    endSelector: end,
-                    limit: batchLimit,
-                    snapshot: snapshot
-                )
             }
         }
     }

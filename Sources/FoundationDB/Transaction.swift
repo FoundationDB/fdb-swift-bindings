@@ -19,7 +19,7 @@
  */
 import CFoundationDB
 
-public class FdbTransaction: ITransaction {
+public class FdbTransaction: ITransaction, @unchecked Sendable {
     private let transaction: OpaquePointer
 
     init(transaction: OpaquePointer) {

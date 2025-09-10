@@ -98,7 +98,7 @@ class Future<T: FutureResult> {
 private final class CallbackBox {
     /// The callback function to be invoked when the future completes.
     let callback: (CFuturePtr) -> Void
-    
+
     /// Initializes a new callback box with the given callback.
     ///
     /// - Parameter callback: The callback function to store.

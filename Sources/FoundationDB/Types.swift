@@ -68,7 +68,7 @@ public enum Fdb {
     /// // Select the last key < "zebra"
     /// let selector = Fdb.KeySelector.lastLessThan("zebra")
     /// ```
-    public struct KeySelector: Selectable {
+    public struct KeySelector: Selectable, @unchecked Sendable {
         /// The reference key for this selector.
         public let key: Key
         /// Whether to include the reference key itself in selection.
