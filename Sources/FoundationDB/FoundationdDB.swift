@@ -182,11 +182,10 @@ public protocol ITransaction {
     /// - Parameters:
     ///   - beginSelector: The key selector for the start of the range.
     ///   - endSelector: The key selector for the end of the range.
-    ///   - limit: Maximum number of key-value pairs to return (0 for no limit).
     ///   - snapshot: Whether to perform a snapshot read.
     /// - Returns: An async sequence that yields key-value pairs.
     func readRange(
-        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, limit: Int32, snapshot: Bool
+        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, snapshot: Bool
     ) -> Fdb.AsyncKVSequence
 
     /// Commits the transaction.
@@ -365,6 +364,43 @@ public extension ITransaction {
         beginKey: Fdb.Key, endKey: Fdb.Key, limit: Int32 = 0, snapshot: Bool = false
     ) async throws -> ResultRange {
         try await getRange(beginKey: beginKey, endKey: endKey, limit: limit, snapshot: snapshot)
+    }
+
+    func readRange(
+        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector
+    ) -> Fdb.AsyncKVSequence {
+        readRange(
+            beginSelector: beginSelector, endSelector: endSelector, snapshot: false
+        )
+    }
+    func readRange(
+        begin: Fdb.Selectable, end: Fdb.Selectable, snapshot: Bool = false
+    ) -> Fdb.AsyncKVSequence {
+        let beginSelector = begin.toKeySelector()
+        let endSelector = end.toKeySelector()
+        return readRange(
+            beginSelector: beginSelector, endSelector: endSelector, snapshot: snapshot
+        )
+    }
+
+    func readRange(
+        beginKey: String, endKey: String, snapshot: Bool = false
+    ) -> Fdb.AsyncKVSequence {
+        let beginSelector = Fdb.KeySelector.firstGreaterOrEqual(beginKey)
+        let endSelector = Fdb.KeySelector.firstGreaterOrEqual(endKey)
+        return readRange(
+            beginSelector: beginSelector, endSelector: endSelector, snapshot: snapshot
+        )
+    }
+
+    func readRange(
+        beginKey: Fdb.Key, endKey: Fdb.Key, snapshot: Bool = false
+    ) -> Fdb.AsyncKVSequence {
+        let beginSelector = Fdb.KeySelector.firstGreaterOrEqual(beginKey)
+        let endSelector = Fdb.KeySelector.firstGreaterOrEqual(endKey)
+        return readRange(
+            beginSelector: beginSelector, endSelector: endSelector, snapshot: snapshot
+        )
     }
 
     func setOption(_ option: Fdb.TransactionOption) throws {

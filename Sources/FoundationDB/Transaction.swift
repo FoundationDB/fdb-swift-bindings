@@ -219,13 +219,13 @@ public class FdbTransaction: ITransaction {
     }
 
     public func readRange(
-        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, limit: Int32 = 0, snapshot: Bool = false
+        beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, snapshot: Bool = false
     ) -> Fdb.AsyncKVSequence {
         Fdb.AsyncKVSequence(
             transaction: self,
             beginSelector: beginSelector,
             endSelector: endSelector,
-            limit: limit,
+            limit: 0,
             snapshot: snapshot
         )
     }
