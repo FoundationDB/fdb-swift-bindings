@@ -19,17 +19,40 @@
  */
 import CFoundationDB
 
+/// A FoundationDB database connection.
+///
+/// `FdbDatabase` represents a connection to a FoundationDB database and implements
+/// the `IDatabase` protocol. It provides transaction creation capabilities and
+/// automatically manages the underlying database connection resource.
+///
+/// ## Usage Example
+/// ```swift
+/// let database = try FdbClient.openDatabase()
+/// let transaction = try database.createTransaction()
+/// ```
 public class FdbDatabase: IDatabase {
+    /// The underlying FoundationDB database pointer.
     private let database: OpaquePointer
 
+    /// Initializes a new database instance with the given database pointer.
+    ///
+    /// - Parameter database: The underlying FoundationDB database pointer.
     init(database: OpaquePointer) {
         self.database = database
     }
 
+    /// Cleans up the database connection when the instance is deallocated.
     deinit {
         fdb_database_destroy(database)
     }
 
+    /// Creates a new transaction for database operations.
+    ///
+    /// Creates and returns a new transaction that can be used to perform
+    /// read and write operations on the database.
+    ///
+    /// - Returns: A new transaction instance conforming to `ITransaction`.
+    /// - Throws: `FdbError` if the transaction cannot be created.
     public func createTransaction() throws -> any ITransaction {
         var transaction: OpaquePointer?
         let error = fdb_database_create_transaction(database, &transaction)

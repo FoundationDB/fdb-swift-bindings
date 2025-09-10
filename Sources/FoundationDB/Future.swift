@@ -19,23 +19,55 @@
  */
 import CFoundationDB
 
+/// Protocol for types that can be extracted from FoundationDB C futures.
+///
+/// Types conforming to this protocol can be used as the result type for `Future<T>`
+/// and provide the implementation for extracting their value from the underlying
+/// C future object.
 // TODO: Explore ways to use Span and avoid copying bytes from CFuture into Swift.
 
 protocol FutureResult: Sendable {
+    /// Extracts the result value from a C future.
+    ///
+    /// - Parameter fromFuture: The C future pointer to extract from.
+    /// - Returns: The extracted result value, or nil if no value is present.
+    /// - Throws: `FdbError` if the future contains an error.
     static func extract(fromFuture: CFuturePtr) throws -> Self?
 }
 
+/// A Swift wrapper for FoundationDB C futures that provides async/await support.
+///
+/// `Future<T>` bridges FoundationDB's callback-based C API with Swift's structured
+/// concurrency model, allowing async operations to be awaited naturally.
+///
+/// ## Usage Example
+/// ```swift
+/// let future = Future<ResultValue>(cFuturePtr)
+/// let result = try await future.getAsync()
+/// ```
 class Future<T: FutureResult> {
+    /// The underlying C future pointer.
     private let cFuture: CFuturePtr
 
+    /// Initializes a new Future with the given C future pointer.
+    ///
+    /// - Parameter cFuture: The C future pointer to wrap.
     init(_ cFuture: CFuturePtr) {
         self.cFuture = cFuture
     }
 
+    /// Cleans up the C future when the instance is deallocated.
     deinit {
         fdb_future_destroy(cFuture)
     }
 
+    /// Asynchronously waits for the future to complete and returns the result.
+    ///
+    /// This method bridges FoundationDB's callback-based API with Swift's async/await,
+    /// allowing the caller to await the result of the underlying C future.
+    ///
+    /// - Returns: The result value extracted from the future, or nil if no value is present.
+    /// - Throws: `FdbError` if the future operation failed.
     func getAsync() async throws -> T? {
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<T?, Error>) in
@@ -59,20 +91,46 @@ class Future<T: FutureResult> {
     }
 }
 
+/// A container for managing callback functions in the C future system.
+///
+/// This class holds onto Swift callback functions that are passed to the C API,
+/// ensuring they remain alive for the duration of the future operation.
 private final class CallbackBox {
+    /// The callback function to be invoked when the future completes.
     let callback: (CFuturePtr) -> Void
+    
+    /// Initializes a new callback box with the given callback.
+    ///
+    /// - Parameter callback: The callback function to store.
     init(callback: @escaping (CFuturePtr) -> Void) {
         self.callback = callback
     }
 }
 
+/// C callback function that bridges to Swift callbacks.
+///
+/// This function is called by the FoundationDB C API when a future completes.
+/// It extracts the Swift callback from the userdata and invokes it.
+///
+/// - Parameters:
+///   - future: The completed C future pointer.
+///   - userdata: Opaque pointer containing the `CallbackBox` instance.
 private func fdbFutureCallback(future: CFuturePtr?, userdata: UnsafeMutableRawPointer?) {
     guard let userdata, let future = future else { return }
     let box = Unmanaged<CallbackBox>.fromOpaque(userdata).takeRetainedValue()
     box.callback(future)
 }
 
+/// A result type for futures that return no data (void operations).
+///
+/// Used for operations like transaction commits that complete successfully
+/// but don't return any specific value.
 struct ResultVoid: FutureResult {
+    /// Extracts a void result from the future (always succeeds if no error).
+    ///
+    /// - Parameter fromFuture: The C future to check for errors.
+    /// - Returns: A `ResultVoid` instance if successful.
+    /// - Throws: `FdbError` if the future contains an error.
     static func extract(fromFuture: CFuturePtr) throws -> Self? {
         let err = fdb_future_get_error(fromFuture)
         if err != 0 {
@@ -83,9 +141,18 @@ struct ResultVoid: FutureResult {
     }
 }
 
+/// A result type for futures that return version numbers.
+///
+/// Used for operations that return transaction version stamps or read versions.
 struct ResultVersion: FutureResult {
+    /// The extracted version value.
     let value: Fdb.Version
 
+    /// Extracts a version from the future.
+    ///
+    /// - Parameter fromFuture: The C future containing the version.
+    /// - Returns: A `ResultVersion` with the extracted version.
+    /// - Throws: `FdbError` if the future contains an error.
     static func extract(fromFuture: CFuturePtr) throws -> Self? {
         var version: Int64 = 0
         let err = fdb_future_get_int64(fromFuture, &version)
@@ -96,9 +163,18 @@ struct ResultVersion: FutureResult {
     }
 }
 
+/// A result type for futures that return key data.
+///
+/// Used for operations like key selectors that resolve to actual keys.
 struct ResultKey: FutureResult {
+    /// The extracted key, or nil if no key was returned.
     let value: Fdb.Key?
 
+    /// Extracts a key from the future.
+    ///
+    /// - Parameter fromFuture: The C future containing the key data.
+    /// - Returns: A `ResultKey` with the extracted key, or nil if no key present.
+    /// - Throws: `FdbError` if the future contains an error.
     static func extract(fromFuture: CFuturePtr) throws -> Self? {
         var keyPtr: UnsafePointer<UInt8>?
         var keyLen: Int32 = 0
@@ -117,9 +193,18 @@ struct ResultKey: FutureResult {
     }
 }
 
+/// A result type for futures that return value data.
+///
+/// Used for get operations that retrieve values associated with keys.
 struct ResultValue: FutureResult {
+    /// The extracted value, or nil if no value was found.
     let value: Fdb.Value?
 
+    /// Extracts a value from the future.
+    ///
+    /// - Parameter fromFuture: The C future containing the value data.
+    /// - Returns: A `ResultValue` with the extracted value, or nil if not present.
+    /// - Throws: `FdbError` if the future contains an error.
     static func extract(fromFuture: CFuturePtr) throws -> Self? {
         var present: Int32 = 0
         var valPtr: UnsafePointer<UInt8>?
@@ -139,10 +224,21 @@ struct ResultValue: FutureResult {
     }
 }
 
+/// A result type for futures that return key-value ranges.
+///
+/// Used for range operations that retrieve multiple key-value pairs along
+/// with information about whether more data is available.
 public struct ResultRange: FutureResult {
+    /// The array of key-value pairs returned by the range operation.
     let records: Fdb.KeyValueArray
+    /// Indicates whether there are more records beyond this result.
     let more: Bool
 
+    /// Extracts key-value pairs from a range future.
+    ///
+    /// - Parameter fromFuture: The C future containing the key-value array.
+    /// - Returns: A `ResultRange` with the extracted records and more flag.
+    /// - Throws: `FdbError` if the future contains an error.
     static func extract(fromFuture: CFuturePtr) throws -> Self? {
         var kvPtr: UnsafePointer<FDBKeyValue>?
         var count: Int32 = 0
