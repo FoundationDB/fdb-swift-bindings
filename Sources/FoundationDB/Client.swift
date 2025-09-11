@@ -48,8 +48,6 @@ public class FdbClient {
     ///
     /// - Parameter version: The FoundationDB API version to use. Defaults to the current version.
     /// - Throws: `FdbError` if initialization fails.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func initialize(version: Int32 = APIVersion.current) async throws {
         try FdbNetwork.shared.initialize(version: version)
@@ -83,8 +81,6 @@ public class FdbClient {
     ///   - option: The network option to set.
     ///   - value: Optional byte array value for the option.
     /// - Throws: `FdbError` if the option cannot be set.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func setNetworkOption(_ option: Fdb.NetworkOption, value: [UInt8]? = nil) throws {
         try FdbNetwork.shared.setNetworkOption(option, value: value)
@@ -96,8 +92,6 @@ public class FdbClient {
     ///   - option: The network option to set.
     ///   - value: String value for the option.
     /// - Throws: `FdbError` if the option cannot be set.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func setNetworkOption(_ option: Fdb.NetworkOption, value: String) throws {
         try FdbNetwork.shared.setNetworkOption(option, value: value)
@@ -109,8 +103,6 @@ public class FdbClient {
     ///   - option: The network option to set.
     ///   - value: Integer value for the option.
     /// - Throws: `FdbError` if the option cannot be set.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func setNetworkOption(_ option: Fdb.NetworkOption, value: Int) throws {
         try FdbNetwork.shared.setNetworkOption(option, value: value)
@@ -122,8 +114,6 @@ public class FdbClient {
     ///
     /// - Parameter directory: The directory where trace files will be written.
     /// - Throws: `FdbError` if tracing cannot be enabled.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func enableTrace(directory: String) throws {
         try setNetworkOption(.traceEnable, value: directory)
@@ -133,8 +123,6 @@ public class FdbClient {
     ///
     /// - Parameter sizeInBytes: The maximum size in bytes for trace files.
     /// - Throws: `FdbError` if the trace roll size cannot be set.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func setTraceRollSize(_ sizeInBytes: Int) throws {
         try setNetworkOption(.traceRollSize, value: sizeInBytes)
@@ -144,8 +132,6 @@ public class FdbClient {
     ///
     /// - Parameter logGroup: The log group identifier for trace files.
     /// - Throws: `FdbError` if the trace log group cannot be set.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func setTraceLogGroup(_ logGroup: String) throws {
         try setNetworkOption(.traceLogGroup, value: logGroup)
@@ -155,8 +141,6 @@ public class FdbClient {
     ///
     /// - Parameter format: The trace format specification.
     /// - Throws: `FdbError` if the trace format cannot be set.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func setTraceFormat(_ format: String) throws {
         try setNetworkOption(.traceFormat, value: format)
@@ -169,8 +153,6 @@ public class FdbClient {
     ///
     /// - Parameter knobSetting: The knob setting in "name=value" format.
     /// - Throws: `FdbError` if the knob cannot be set.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func setKnob(_ knobSetting: String) throws {
         try setNetworkOption(.knob, value: knobSetting)
@@ -180,8 +162,6 @@ public class FdbClient {
     ///
     /// - Parameter path: The file path to the TLS certificate.
     /// - Throws: `FdbError` if the TLS certificate path cannot be set.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func setTLSCertPath(_ path: String) throws {
         try setNetworkOption(.tlsCertPath, value: path)
@@ -191,8 +171,6 @@ public class FdbClient {
     ///
     /// - Parameter path: The file path to the TLS private key.
     /// - Throws: `FdbError` if the TLS key path cannot be set.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func setTLSKeyPath(_ path: String) throws {
         try setNetworkOption(.tlsKeyPath, value: path)
@@ -202,8 +180,6 @@ public class FdbClient {
     ///
     /// - Parameter path: The directory path for temporary files.
     /// - Throws: `FdbError` if the temporary directory cannot be set.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func setClientTempDirectory(_ path: String) throws {
         try setNetworkOption(.clientTmpDir, value: path)
@@ -212,8 +188,6 @@ public class FdbClient {
     /// Disables client statistics logging.
     ///
     /// - Throws: `FdbError` if client statistics logging cannot be disabled.
-    ///
-    /// - Note: This method must be called from the main actor.
     @MainActor
     public static func disableClientStatisticsLogging() throws {
         try setNetworkOption(.disableClientStatisticsLogging, value: nil as [UInt8]?)
