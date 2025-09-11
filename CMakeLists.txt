@@ -24,15 +24,10 @@ target_include_directories(FoundationDB-Swift PUBLIC
 )
 
 set(STATIC_SWIFT_LIBS
-    ${SWIFT_SDK_STATIC_DIR}/libFoundation.a
-    ${SWIFT_SDK_STATIC_DIR}/libCoreFoundation.a
-    ${SWIFT_SDK_STATIC_DIR}/libFoundationInternationalization.a
-    ${SWIFT_SDK_STATIC_DIR}/libswiftCore.a
-    ${SWIFT_SDK_STATIC_DIR}/libswiftDispatch.a
-    ${SWIFT_SDK_STATIC_DIR}/libswiftSynchronization.a
-    ${SWIFT_SDK_STATIC_DIR}/libswift_Concurrency.a
-    ${SWIFT_SDK_STATIC_DIR}/libswift_RegexParser.a
-    ${SWIFT_SDK_STATIC_DIR}/libswift_StringProcessing.a
+    # ${SWIFT_SDK_STATIC_DIR}/libswiftCore.a
+    # ${SWIFT_SDK_STATIC_DIR}/libswiftDispatch.a
+    # ${SWIFT_SDK_STATIC_DIR}/libswiftSynchronization.a
+    # ${SWIFT_SDK_STATIC_DIR}/libswift_Concurrency.a
 )
 
 target_link_directories(FoundationDB-Swift PUBLIC
