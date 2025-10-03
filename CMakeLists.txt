@@ -11,7 +11,7 @@ endif()
 
 set(FDB_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/bindings/c)
 set(SWIFT_SDK_DIR "/usr/lib/swift/linux/")
-set(SWIFT_SDK_STATIC_DIR "/usr/libexec/swift/6.0.3/lib/swift_static/linux")
+set(SWIFT_SDK_STATIC_DIR "/usr/lib/swift_static/linux")
 
 file(GLOB_RECURSE SWIFT_BINDING_SOURCES "Sources/**/*.swift")
 add_library(FoundationDB-Swift ${SWIFT_BINDING_SOURCES})
@@ -71,10 +71,22 @@ set_target_properties(FoundationDB-Swift-Tests PROPERTIES
     Swift_MODULE_NAME "FoundationDBTests"
 )
 
-install(TARGETS FoundationDB-Swift
+add_executable(stacktester_swift
+    Tests/StackTester/Sources/StackTester/StackTester.swift
+    Tests/StackTester/Sources/StackTester/main.swift
+)
+add_dependencies(stacktester_swift FoundationDB-Swift)
+target_link_libraries(stacktester_swift PRIVATE FoundationDB-Swift)
+
+set_target_properties(stacktester_swift PROPERTIES
+    Swift_MODULE_NAME "StackTester"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bindings/swift/bin"
+)
+
+install(TARGETS FoundationDB-Swift stacktester_swift
+    RUNTIME DESTINATION bindings/swift/bin
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
 )
 
-# Configure test to run with Swift Testing
 add_test(NAME FoundationDB-Swift-Tests COMMAND FoundationDB-Swift-Tests)

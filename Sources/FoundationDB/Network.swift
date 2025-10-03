@@ -36,16 +36,15 @@ import CFoundationDB
 /// let network = FdbNetwork.shared
 /// try network.initialize(version: 740)
 /// ```
-// TODO: stopNetwork at deinit.
 @MainActor
 class FdbNetwork {
     /// The shared singleton instance of the network manager.
     static let shared = FdbNetwork()
 
     /// Indicates whether the network has been set up.
-    private var networkSetup = false
+    private nonisolated(unsafe) var networkSetup = false
     /// The pthread handle for the network thread.
-    private var networkThread: pthread_t? = nil
+    private nonisolated(unsafe) var networkThread: pthread_t? = nil
 
     /// Initializes the FoundationDB network with the specified API version.
     ///
@@ -63,6 +62,23 @@ class FdbNetwork {
         try selectAPIVersion(version)
         try setupNetwork()
         startNetwork()
+    }
+
+    /// Stops the FoundationDB network and waits for the network thread to complete.
+    deinit {
+        if !networkSetup {
+            return
+        }
+
+        // Call stop_network and wait for network thread to complete
+        let error = fdb_stop_network()
+        if error != 0 {
+            print("Failed to stop network in deinit: \(FdbError(code: error).description)")
+        }
+
+        if let thread = networkThread {
+            pthread_join(thread, nil)
+        }
     }
 
     /// Selects the FoundationDB API version.
@@ -115,21 +131,6 @@ class FdbNetwork {
         if result == 0 {
             networkThread = thread
         }
-    }
-
-    /// Stops the FoundationDB network and waits for the network thread to complete.
-    ///
-    /// - Throws: `FdbError` if the network cannot be stopped cleanly.
-    func stopNetwork() throws {
-        let error = fdb_stop_network()
-        if error != 0 {
-            throw FdbError(code: error)
-        }
-
-        if networkSetup {
-            pthread_join(networkThread!, nil)
-        }
-        networkSetup = false
     }
 
     /// Sets a network option with an optional byte array value.

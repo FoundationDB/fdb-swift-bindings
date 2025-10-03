@@ -27,7 +27,8 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .library(name: "FoundationDB", targets: ["FoundationDB"])
+        .library(name: "FoundationDB", targets: ["FoundationDB"]),
+        .executable(name: "stacktester", targets: ["StackTester"])
     ],
     targets: [
         .systemLibrary(
@@ -44,6 +45,11 @@ let package = Package(
         .testTarget(
             name: "FoundationDBTests",
             dependencies: ["FoundationDB"]
+        ),
+        .executableTarget(
+            name: "StackTester",
+            dependencies: ["FoundationDB"],
+            path: "Tests/StackTester/Sources/StackTester"
         ),
     ]
 )

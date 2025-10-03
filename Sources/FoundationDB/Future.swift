@@ -230,9 +230,9 @@ struct ResultValue: FutureResult {
 /// with information about whether more data is available.
 public struct ResultRange: FutureResult {
     /// The array of key-value pairs returned by the range operation.
-    let records: Fdb.KeyValueArray
+    public let records: Fdb.KeyValueArray
     /// Indicates whether there are more records beyond this result.
-    let more: Bool
+    public let more: Bool
 
     /// Extracts key-value pairs from a range future.
     ///
