@@ -157,6 +157,12 @@ public class FdbTransaction: ITransaction, @unchecked Sendable {
         ).getAsync()?.value ?? 0
     }
 
+    public func onError(_ error: FdbError) async throws {
+        try await Future<ResultVoid>(
+            fdb_transaction_on_error(transaction, error.code)
+        ).getAsync()
+    }
+
     public func getRange(
         beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, limit: Int32 = 0,
         snapshot: Bool

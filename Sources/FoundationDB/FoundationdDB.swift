@@ -218,6 +218,15 @@ public protocol ITransaction: Sendable {
     /// - Throws: `FdbError` if the operation fails.
     func getReadVersion() async throws -> Int64
 
+    /// Handles transaction errors and implements retry logic with exponential backoff.
+    ///
+    /// If this method returns successfully, the transaction has been reset and can be retried.
+    /// If it throws an error, the transaction should not be retried.
+    ///
+    /// - Parameter error: The error encountered during transaction execution.
+    /// - Throws: `FdbError` if the error is not retryable or retry limits have been exceeded.
+    func onError(_ error: FdbError) async throws
+
     /// Performs an atomic operation on a key.
     ///
     /// - Parameters:

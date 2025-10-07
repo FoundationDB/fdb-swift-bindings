@@ -140,7 +140,7 @@ class StackMachine {
 
         switch op {
         case "PUSH":
-            assert(instruction.coung > 1)
+            assert(instruction.count > 1)
             store(idx, instruction[1])
 
         case "POP":
@@ -189,11 +189,22 @@ class StackMachine {
             let name = waitAndPop().item as! [UInt8]
             try switchTransaction(name)
 
-        case "ON_ERROR": // TODO
+        case "ON_ERROR":
             let errorCode = waitAndPop().item as! Int64
-            // For now, just create a new transaction as error handling
-            try newTransaction()
-            store(idx, Array("RESULT_NOT_PRESENT".utf8))
+            let transaction = try currentTransaction()
+
+            // Create FdbError from the error code
+            let error = FdbError(code: Int32(errorCode))
+
+            // Call onError which will wait and handle the error appropriately
+            do {
+                try await transaction.onError(error)
+                // If onError succeeds, the transaction has been reset and is ready to retry
+                store(idx, Array("RESULT_NOT_PRESENT".utf8))
+            } catch {
+                // If onError fails, store the error (transaction should not be retried)
+                throw error
+            }
  
         case "GET_READ_VERSION":
             let transaction = try currentTransaction()
