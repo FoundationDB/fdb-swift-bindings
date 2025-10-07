@@ -163,6 +163,54 @@ public class FdbTransaction: ITransaction, @unchecked Sendable {
         ).getAsync()
     }
 
+    public func getEstimatedRangeSizeBytes(beginKey: Fdb.Key, endKey: Fdb.Key) async throws -> Int64 {
+        try await beginKey.withUnsafeBytes { beginKeyBytes in
+            endKey.withUnsafeBytes { endKeyBytes in
+                Future<ResultInt64>(
+                    fdb_transaction_get_estimated_range_size_bytes(
+                        transaction,
+                        beginKeyBytes.bindMemory(to: UInt8.self).baseAddress,
+                        Int32(beginKey.count),
+                        endKeyBytes.bindMemory(to: UInt8.self).baseAddress,
+                        Int32(endKey.count)
+                    )
+                )
+            }
+        }.getAsync()?.value ?? 0
+    }
+
+    public func getRangeSplitPoints(beginKey: Fdb.Key, endKey: Fdb.Key, chunkSize: Int64) async throws -> [[UInt8]] {
+        try await beginKey.withUnsafeBytes { beginKeyBytes in
+            endKey.withUnsafeBytes { endKeyBytes in
+                Future<ResultKeyArray>(
+                    fdb_transaction_get_range_split_points(
+                        transaction,
+                        beginKeyBytes.bindMemory(to: UInt8.self).baseAddress,
+                        Int32(beginKey.count),
+                        endKeyBytes.bindMemory(to: UInt8.self).baseAddress,
+                        Int32(endKey.count),
+                        chunkSize
+                    )
+                )
+            }
+        }.getAsync()?.value ?? []
+    }
+
+    public func getCommittedVersion() throws -> Int64 {
+        var version: Int64 = 0
+        let err = fdb_transaction_get_committed_version(transaction, &version)
+        if err != 0 {
+            throw FdbError(code: err)
+        }
+        return version
+    }
+
+    public func getApproximateSize() async throws -> Int64 {
+        try await Future<ResultInt64>(
+            fdb_transaction_get_approximate_size(transaction)
+        ).getAsync()?.value ?? 0
+    }
+
     public func getRange(
         beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, limit: Int32 = 0,
         snapshot: Bool

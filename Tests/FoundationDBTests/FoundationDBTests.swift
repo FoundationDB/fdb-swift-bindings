@@ -1452,3 +1452,110 @@ extension String {
         return String(repeating: pad, count: toLength - count) + self
     }
 }
+
+@Test("getEstimatedRangeSizeBytes returns size estimate")
+func testGetEstimatedRangeSizeBytes() async throws {
+    try await FdbClient.initialize()
+    let database = try FdbClient.openDatabase()
+
+    // Write some test data
+    try await database.withTransaction { transaction in
+        transaction.clearRange(beginKey: "test_size_", endKey: "test_size`")
+        for i in 0..<100 {
+            let key = "test_size_\(String.padded(i))"
+            let value = String(repeating: "x", count: 1000)
+            transaction.setValue(value, for: key)
+        }
+        return ()
+    }
+
+    // Get estimated size
+    let transaction = try database.createTransaction()
+    let beginKey: Fdb.Key = Array("test_size_".utf8)
+    let endKey: Fdb.Key = Array("test_size`".utf8)
+    let estimatedSize = try await transaction.getEstimatedRangeSizeBytes(beginKey: beginKey, endKey: endKey)
+
+    // Size should be positive (may not be exact due to sampling)
+    #expect(estimatedSize >= 0, "Estimated size should be non-negative")
+}
+
+@Test("getRangeSplitPoints returns split keys")
+func testGetRangeSplitPoints() async throws {
+    try await FdbClient.initialize()
+    let database = try FdbClient.openDatabase()
+
+    // Write some test data
+    try await database.withTransaction { transaction in
+        transaction.clearRange(beginKey: "test_split_", endKey: "test_split`")
+        for i in 0..<200 {
+            let key = "test_split_\(String.padded(i))"
+            let value = String(repeating: "y", count: 500)
+            transaction.setValue(value, for: key)
+        }
+        return ()
+    }
+
+    // Get split points with 10KB chunks
+    let transaction = try database.createTransaction()
+    let beginKey: Fdb.Key = Array("test_split_".utf8)
+    let endKey: Fdb.Key = Array("test_split`".utf8)
+    let splitPoints = try await transaction.getRangeSplitPoints(
+        beginKey: beginKey,
+        endKey: endKey,
+        chunkSize: 10000
+    )
+
+    // Should return at least begin and end keys
+    #expect(splitPoints.count >= 2, "Should return at least begin and end keys")
+    #expect(splitPoints.first == beginKey, "First split point should be begin key")
+    #expect(splitPoints.last == endKey, "Last split point should be end key")
+}
+
+@Test("getCommittedVersion returns version after commit")
+func testGetCommittedVersion() async throws {
+    try await FdbClient.initialize()
+    let database = try FdbClient.openDatabase()
+    let transaction = try database.createTransaction()
+
+    transaction.setValue("test_value", for: "test_version_key")
+    _ = try await transaction.commit()
+
+    let committedVersion = try transaction.getCommittedVersion()
+    #expect(committedVersion > 0, "Committed version should be positive for write transaction")
+}
+
+@Test("getCommittedVersion returns -1 for read-only transaction")
+func testGetCommittedVersionReadOnly() async throws {
+    try await FdbClient.initialize()
+    let database = try FdbClient.openDatabase()
+    let transaction = try database.createTransaction()
+
+    // Read-only transaction
+    _ = try await transaction.getValue(for: "test_readonly_key")
+    _ = try await transaction.commit()
+
+    let committedVersion = try transaction.getCommittedVersion()
+    #expect(committedVersion == -1, "Read-only transaction should return -1")
+}
+
+@Test("getApproximateSize returns transaction size")
+func testGetApproximateSize() async throws {
+    try await FdbClient.initialize()
+    let database = try FdbClient.openDatabase()
+    let transaction = try database.createTransaction()
+
+    // Initial size
+    let initialSize = try await transaction.getApproximateSize()
+    #expect(initialSize >= 0, "Initial size should be non-negative")
+
+    // Add some mutations
+    for i in 0..<10 {
+        let key = "test_approx_\(i)"
+        let value = String(repeating: "z", count: 100)
+        transaction.setValue(value, for: key)
+    }
+
+    // Size should increase
+    let sizeAfterMutations = try await transaction.getApproximateSize()
+    #expect(sizeAfterMutations > initialSize, "Size should increase after mutations")
+}

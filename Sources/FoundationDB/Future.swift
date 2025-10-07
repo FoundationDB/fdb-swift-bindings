@@ -163,6 +163,28 @@ struct ResultVersion: FutureResult {
     }
 }
 
+/// A result type for futures that return 64-bit integer values.
+///
+/// Used for operations that return size estimates or counts.
+struct ResultInt64: FutureResult {
+    /// The extracted integer value.
+    let value: Int64
+
+    /// Extracts an Int64 from the future.
+    ///
+    /// - Parameter fromFuture: The C future containing the integer.
+    /// - Returns: A `ResultInt64` with the extracted value.
+    /// - Throws: `FdbError` if the future contains an error.
+    static func extract(fromFuture: CFuturePtr) throws -> Self? {
+        var value: Int64 = 0
+        let err = fdb_future_get_int64(fromFuture, &value)
+        if err != 0 {
+            throw FdbError(code: err)
+        }
+        return Self(value: value)
+    }
+}
+
 /// A result type for futures that return key data.
 ///
 /// Used for operations like key selectors that resolve to actual keys.
@@ -262,5 +284,41 @@ public struct ResultRange: FutureResult {
         }
 
         return Self(records: keyValueArray, more: more > 0)
+    }
+}
+
+/// A result type for futures that return arrays of keys.
+///
+/// Used for operations like get range split points that return multiple keys.
+struct ResultKeyArray: FutureResult {
+    /// The array of keys returned by the operation.
+    let value: [[UInt8]]
+
+    /// Extracts an array of keys from the future.
+    ///
+    /// - Parameter fromFuture: The C future containing the key array.
+    /// - Returns: A `ResultKeyArray` with the extracted keys.
+    /// - Throws: `FdbError` if the future contains an error.
+    static func extract(fromFuture: CFuturePtr) throws -> Self? {
+        var keysPtr: UnsafePointer<FDBKey>?
+        var count: Int32 = 0
+
+        let err = fdb_future_get_key_array(fromFuture, &keysPtr, &count)
+        if err != 0 {
+            throw FdbError(code: err)
+        }
+
+        guard let keysPtr = keysPtr, count > 0 else {
+            return Self(value: [])
+        }
+
+        var keyArray: [[UInt8]] = []
+        for i in 0 ..< Int(count) {
+            let fdbKey = keysPtr[i]
+            let key = Array(UnsafeBufferPointer(start: fdbKey.key, count: Int(fdbKey.key_length)))
+            keyArray.append(key)
+        }
+
+        return Self(value: keyArray)
     }
 }

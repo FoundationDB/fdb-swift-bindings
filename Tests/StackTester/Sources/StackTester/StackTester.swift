@@ -393,19 +393,21 @@ class StackMachine {
 
             pushRange(idx, result.records, prefixFilter: prefix)
 
-        case "GET_ESTIMATED_RANGE_SIZE": // TODO
-            // Python order: begin, end = inst.pop(2)
+        case "GET_ESTIMATED_RANGE_SIZE":
             let endKey = waitAndPop().item as! [UInt8]
             let beginKey = waitAndPop().item as! [UInt8]
-            // Not available in Swift bindings, store placeholder
+            let transaction = try currentTransaction()
+
+            _ = try await transaction.getEstimatedRangeSizeBytes(beginKey: beginKey, endKey: endKey)
             store(idx, Array("GOT_ESTIMATED_RANGE_SIZE".utf8))
 
-        case "GET_RANGE_SPLIT_POINTS": // TODO
-            // Python order: begin, end, chunkSize = inst.pop(3)
+        case "GET_RANGE_SPLIT_POINTS":
             let chunkSize = waitAndPop().item as! Int64
             let endKey = waitAndPop().item as! [UInt8]
             let beginKey = waitAndPop().item as! [UInt8]
-            // Not available in Swift bindings, store placeholder
+            let transaction = try currentTransaction()
+
+            _ = try await transaction.getRangeSplitPoints(beginKey: beginKey, endKey: endKey, chunkSize: chunkSize)
             store(idx, Array("GOT_RANGE_SPLIT_POINTS".utf8))
 
         case "CLEAR":
@@ -456,13 +458,14 @@ class StackMachine {
             let transaction = try currentTransaction()
             transaction.setReadVersion(version)
 
-        case "GET_COMMITTED_VERSION": // TODO
-            // Not available in Swift bindings, store lastVersion instead
-            store(idx, lastVersion)
+        case "GET_COMMITTED_VERSION":
+            let transaction = try currentTransaction()
+            lastVersion = try transaction.getCommittedVersion()
             store(idx, Array("GOT_COMMITTED_VERSION".utf8))
 
-        case "GET_APPROXIMATE_SIZE": // TODO
-            // Not available in Swift bindings, store placeholder
+        case "GET_APPROXIMATE_SIZE":
+            let transaction = try currentTransaction()
+            _ = try await transaction.getApproximateSize()
             store(idx, Array("GOT_APPROXIMATE_SIZE".utf8))
 
         case "GET_VERSIONSTAMP":
