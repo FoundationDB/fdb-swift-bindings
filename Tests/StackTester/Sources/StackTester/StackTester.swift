@@ -140,140 +140,134 @@ class StackMachine {
 
         switch op {
         case "PUSH":
-            if instruction.count > 1 {
-                store(idx, instruction[1])
-            }
+            assert(instruction.coung > 1)
+            store(idx, instruction[1])
 
         case "POP":
-            if !stack.isEmpty {
-                let _ = waitAndPop()
-            }
+            assert(!stack.isEmpty)
+            let _ = waitAndPop()
 
         case "DUP":
-            if !stack.isEmpty {
-                let entry = stack.last!
-                store(entry.idx, entry.item)
-            }
+            assert(!stack.isEmpty)
+            let entry = stack.last!
+            store(entry.idx, entry.item)
 
         case "EMPTY_STACK":
             stack.removeAll()
 
         case "SWAP":
-            if !stack.isEmpty {
-                let swapIdx = waitAndPop().item as! Int64
-                let lastIdx = stack.count - 1
-                let targetIdx = lastIdx - Int(swapIdx)
-                if targetIdx >= 0 && targetIdx < stack.count {
-                    stack.swapAt(lastIdx, targetIdx)
-                }
-            }
+            assert(!stack.isEmpty)
+            let swapIdx = waitAndPop().item as! Int64
+            let lastIdx = stack.count - 1
+            let targetIdx = lastIdx - Int(swapIdx)
+            assert(targetIdx >= 0 && targetIdx < stack.count)
+            stack.swapAt(lastIdx, targetIdx)
 
         case "SUB":
-            if stack.count >= 2 {
-                let x = waitAndPop().item as! Int64
-                let y = waitAndPop().item as! Int64
-                store(idx, x - y)
-            }
+            assert(stack.count >= 2)
+            let x = waitAndPop().item as! Int64
+            let y = waitAndPop().item as! Int64
+            store(idx, x - y)
 
         case "CONCAT":
-            if stack.count >= 2 {
-                let str1 = waitAndPop().item
-                let str2 = waitAndPop().item
+            assert(stack.count >= 2)
+            let str1 = waitAndPop().item
+            let str2 = waitAndPop().item
 
-                if let s1 = str1 as? String, let s2 = str2 as? String {
-                    store(idx, s1 + s2)
-                } else if let d1 = str1 as? [UInt8], let d2 = str2 as? [UInt8] {
-                    store(idx, d1 + d2)
-                } else {
-                    fatalError("Invalid CONCAT parameters")
-                }
-            }
-
-        case "SET":
-            if stack.count >= 2 {
-                let key = waitAndPop().item as! [UInt8]
-                let value = waitAndPop().item as! [UInt8]
-
-                try await database.withTransaction { transaction in
-                    transaction.setValue(value, for: key)
-                    return ()
-                }
-            }
-
-        case "GET":
-            if !stack.isEmpty {
-                let key = waitAndPop().item as! [UInt8]
-
-                let result = try await database.withTransaction { transaction in
-                    return try await transaction.getValue(for: key, snapshot: false)
-                }
-
-                if let value = result {
-                    store(idx, value)
-                } else {
-                    store(idx, Array("RESULT_NOT_PRESENT".utf8))
-                }
-            }
-
-        case "LOG_STACK":
-            if !stack.isEmpty {
-                let logPrefix = waitAndPop().item as! [UInt8]
-
-                try await database.withTransaction { transaction in
-                    var stackIndex = 0
-                    for entry in stack.reversed() {
-                        // Create key: logPrefix + tuple(stackIndex, entry.idx)
-                        let keyTuple = Tuple([Int64(stackIndex), Int64(entry.idx)])
-                        var key = logPrefix
-                        key.append(contentsOf: keyTuple.encode())
-
-                        // Create value from entry.item
-                        var value: [UInt8]
-                        if let data = entry.item as? [UInt8] {
-                            value = data
-                        } else if let str = entry.item as? String {
-                            value = Array(str.utf8)
-                        } else {
-                            value = Array("STACK_ITEM".utf8)
-                        }
-
-                        // Limit value size like in Go
-                        let maxSize = 40000
-                        if value.count > maxSize {
-                            value = Array(value.prefix(maxSize))
-                        }
-
-                        transaction.setValue(value, for: key)
-                        stackIndex += 1
-                    }
-
-                    // Clear stack after logging
-                    stack.removeAll()
-                    return ()
-                }
+            if let s1 = str1 as? String, let s2 = str2 as? String {
+                store(idx, s1 + s2)
+            } else if let d1 = str1 as? [UInt8], let d2 = str2 as? [UInt8] {
+                store(idx, d1 + d2)
+            } else {
+                fatalError("Invalid CONCAT parameters")
             }
 
         case "NEW_TRANSACTION":
             try newTransaction()
 
+        case "USE_TRANSACTION":
+            let name = waitAndPop().item as! [UInt8]
+            try switchTransaction(name)
+
+        case "ON_ERROR": // TODO
+            let errorCode = waitAndPop().item as! Int64
+            // For now, just create a new transaction as error handling
+            try newTransaction()
+            store(idx, Array("RESULT_NOT_PRESENT".utf8))
+ 
         case "GET_READ_VERSION":
             let transaction = try currentTransaction()
             lastVersion = try await transaction.getReadVersion()
             store(idx, Array("GOT_READ_VERSION".utf8))
 
-        case "USE_TRANSACTION":
-            let name = waitAndPop().item as! [UInt8]
-            try switchTransaction(name)
+        case "SET":
+            assert(stack.count >= 2)
+            let key = waitAndPop().item as! [UInt8]
+            let value = waitAndPop().item as! [UInt8]
+
+            try await database.withTransaction { transaction in
+                transaction.setValue(value, for: key)
+                return ()
+            }
+
+        case "GET":
+            assert(!stack.isEmpty)
+            let key = waitAndPop().item as! [UInt8]
+
+            let result = try await database.withTransaction { transaction in
+                return try await transaction.getValue(for: key, snapshot: false)
+            }
+
+            if let value = result {
+                store(idx, value)
+            } else {
+                store(idx, Array("RESULT_NOT_PRESENT".utf8))
+            }
+
+        case "LOG_STACK": // TODO
+            assert(!stack.isEmpty)
+            let logPrefix = waitAndPop().item as! [UInt8]
+
+            try await database.withTransaction { transaction in
+                var stackIndex = 0
+                for entry in stack.reversed() {
+                    // Create key: logPrefix + tuple(stackIndex, entry.idx)
+                    let keyTuple = Tuple([Int64(stackIndex), Int64(entry.idx)])
+                    var key = logPrefix
+                    key.append(contentsOf: keyTuple.encode())
+
+                    // Create value from entry.item
+                    var value: [UInt8]
+                    if let data = entry.item as? [UInt8] {
+                        value = data
+                    } else if let str = entry.item as? String {
+                        value = Array(str.utf8)
+                    } else {
+                        value = Array("STACK_ITEM".utf8)
+                    }
+
+                    // Limit value size like in Go
+                    let maxSize = 40000
+                    if value.count > maxSize {
+                        value = Array(value.prefix(maxSize))
+                    }
+
+                    transaction.setValue(value, for: key)
+                    stackIndex += 1
+                }
+
+                // Clear stack after logging
+                stack.removeAll()
+                return ()
+            }
 
         case "COMMIT":
             let transaction = try currentTransaction()
             let success = try await transaction.commit()
-            // In async Swift, we store the result directly since it's already awaited
             store(idx, Array("COMMIT_RESULT".utf8))
 
         case "RESET":
             if let transaction = transactionMap[transactionName] as? FdbTransaction {
-                // Create a new transaction to replace the reset one
                 try newTransaction()
             }
 
@@ -281,12 +275,6 @@ class StackMachine {
             if let transaction = transactionMap[transactionName] {
                 transaction.cancel()
             }
-
-        case "ON_ERROR":
-            let errorCode = waitAndPop().item as! Int64
-            // For now, just create a new transaction as error handling
-            try newTransaction()
-            store(idx, Array("RESULT_NOT_PRESENT".utf8))
 
         case "GET_KEY":
             // Python order: key, or_equal, offset, prefix = inst.pop(4)
@@ -372,14 +360,14 @@ class StackMachine {
 
             pushRange(idx, result.records, prefixFilter: prefix)
 
-        case "GET_ESTIMATED_RANGE_SIZE":
+        case "GET_ESTIMATED_RANGE_SIZE": // TODO
             // Python order: begin, end = inst.pop(2)
             let endKey = waitAndPop().item as! [UInt8]
             let beginKey = waitAndPop().item as! [UInt8]
             // Not available in Swift bindings, store placeholder
             store(idx, Array("GOT_ESTIMATED_RANGE_SIZE".utf8))
 
-        case "GET_RANGE_SPLIT_POINTS":
+        case "GET_RANGE_SPLIT_POINTS": // TODO
             // Python order: begin, end, chunkSize = inst.pop(3)
             let chunkSize = waitAndPop().item as! Int64
             let endKey = waitAndPop().item as! [UInt8]
@@ -435,12 +423,12 @@ class StackMachine {
             let transaction = try currentTransaction()
             transaction.setReadVersion(version)
 
-        case "GET_COMMITTED_VERSION":
+        case "GET_COMMITTED_VERSION": // TODO
             // Not available in Swift bindings, store lastVersion instead
             store(idx, lastVersion)
             store(idx, Array("GOT_COMMITTED_VERSION".utf8))
 
-        case "GET_APPROXIMATE_SIZE":
+        case "GET_APPROXIMATE_SIZE": // TODO
             // Not available in Swift bindings, store placeholder
             store(idx, Array("GOT_APPROXIMATE_SIZE".utf8))
 
@@ -624,8 +612,7 @@ class StackMachine {
             // Wait until stack is empty - already satisfied since we process sequentially
             break
 
-        case "UNIT_TESTS":
-            // Unit tests placeholder - could implement tuple/encoding tests here
+        case "UNIT_TESTS": // TODO
             store(idx, Array("UNIT_TESTS_COMPLETED".utf8))
 
         default:
