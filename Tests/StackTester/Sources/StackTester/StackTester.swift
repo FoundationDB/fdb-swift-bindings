@@ -127,6 +127,41 @@ class StackMachine {
         }
     }
 
+    // Helper method to log a batch of stack entries
+    func logStackBatch(_ entries: [(stackIndex: Int, entry: StackEntry)], prefix: [UInt8]) async throws {
+        try await database.withTransaction { transaction in
+            for (stackIndex, entry) in entries {
+                // Create key: prefix + tuple(stackIndex, entry.idx)
+                let keyTuple = Tuple([Int64(stackIndex), Int64(entry.idx)])
+                var key = prefix
+                key.append(contentsOf: keyTuple.encode())
+
+                // Pack value as a tuple (matching Python/Go behavior)
+                let valueTuple: Tuple
+                if let data = entry.item as? [UInt8] {
+                    valueTuple = Tuple([data])
+                } else if let str = entry.item as? String {
+                    valueTuple = Tuple([str])
+                } else if let int = entry.item as? Int64 {
+                    valueTuple = Tuple([int])
+                } else {
+                    valueTuple = Tuple([Array("UNKNOWN_ITEM".utf8)])
+                }
+
+                var packedValue = valueTuple.encode()
+
+                // Limit value size to 40000 bytes
+                let maxSize = 40000
+                if packedValue.count > maxSize {
+                    packedValue = Array(packedValue.prefix(maxSize))
+                }
+
+                transaction.setValue(packedValue, for: key)
+            }
+            return ()
+        }
+    }
+
     // Process a single instruction - subset of Go's processInst
     func processInstruction(_ idx: Int, _ instruction: [Any]) async throws {
         guard let op = instruction.first as? String else {
@@ -235,41 +270,28 @@ class StackMachine {
                 store(idx, Array("RESULT_NOT_PRESENT".utf8))
             }
 
-        case "LOG_STACK": // TODO
+        case "LOG_STACK":
             assert(!stack.isEmpty)
             let logPrefix = waitAndPop().item as! [UInt8]
 
-            try await database.withTransaction { transaction in
-                var stackIndex = 0
-                for entry in stack.reversed() {
-                    // Create key: logPrefix + tuple(stackIndex, entry.idx)
-                    let keyTuple = Tuple([Int64(stackIndex), Int64(entry.idx)])
-                    var key = logPrefix
-                    key.append(contentsOf: keyTuple.encode())
+            // Process stack in batches of 100 like Python/Go implementations
+            var entries: [(stackIndex: Int, entry: StackEntry)] = []
+            var stackIndex = stack.count - 1
 
-                    // Create value from entry.item
-                    var value: [UInt8]
-                    if let data = entry.item as? [UInt8] {
-                        value = data
-                    } else if let str = entry.item as? String {
-                        value = Array(str.utf8)
-                    } else {
-                        value = Array("STACK_ITEM".utf8)
-                    }
+            while !stack.isEmpty {
+                let entry = waitAndPop()
+                entries.append((stackIndex: stackIndex, entry: entry))
+                stackIndex -= 1
 
-                    // Limit value size like in Go
-                    let maxSize = 40000
-                    if value.count > maxSize {
-                        value = Array(value.prefix(maxSize))
-                    }
-
-                    transaction.setValue(value, for: key)
-                    stackIndex += 1
+                if entries.count == 100 {
+                    try await logStackBatch(entries, prefix: logPrefix)
+                    entries.removeAll()
                 }
+            }
 
-                // Clear stack after logging
-                stack.removeAll()
-                return ()
+            // Log remaining entries
+            if !entries.isEmpty {
+                try await logStackBatch(entries, prefix: logPrefix)
             }
 
         case "COMMIT":
