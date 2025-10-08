@@ -477,22 +477,32 @@ class StackMachine {
             }
 
         case "READ_CONFLICT_RANGE":
-            let beginKey = waitAndPop().item as! [UInt8]
             let endKey = waitAndPop().item as! [UInt8]
-            // Conflict ranges not exposed in Swift bindings, just consume parameters
+            let beginKey = waitAndPop().item as! [UInt8]
+            let transaction = try currentTransaction()
+            try transaction.addConflictRange(beginKey: beginKey, endKey: endKey, type: .read)
 
         case "WRITE_CONFLICT_RANGE":
-            let beginKey = waitAndPop().item as! [UInt8]
             let endKey = waitAndPop().item as! [UInt8]
-            // Conflict ranges not exposed in Swift bindings, just consume parameters
+            let beginKey = waitAndPop().item as! [UInt8]
+            let transaction = try currentTransaction()
+            try transaction.addConflictRange(beginKey: beginKey, endKey: endKey, type: .write)
 
         case "READ_CONFLICT_KEY":
             let key = waitAndPop().item as! [UInt8]
-            // Conflict ranges not exposed in Swift bindings, just consume parameters
+            let transaction = try currentTransaction()
+            // For a single key, create a range [key, key+\x00)
+            var endKey = key
+            endKey.append(0x00)
+            try transaction.addConflictRange(beginKey: key, endKey: endKey, type: .read)
 
         case "WRITE_CONFLICT_KEY":
             let key = waitAndPop().item as! [UInt8]
-            // Conflict ranges not exposed in Swift bindings, just consume parameters
+            let transaction = try currentTransaction()
+            // For a single key, create a range [key, key+\x00)
+            var endKey = key
+            endKey.append(0x00)
+            try transaction.addConflictRange(beginKey: key, endKey: endKey, type: .write)
 
         case "DISABLE_WRITE_CONFLICT":
             // Not directly available in Swift bindings, could use transaction option
