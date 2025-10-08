@@ -66,4 +66,53 @@ public class FdbDatabase: IDatabase {
 
         return FdbTransaction(transaction: tr)
     }
+
+    /// Sets a database option with a byte array value.
+    ///
+    /// - Parameters:
+    ///   - option: The database option to set.
+    ///   - value: The value for the option (optional).
+    /// - Throws: `FdbError` if the option cannot be set.
+    public func setOption(_ option: Fdb.DatabaseOption, value: Fdb.Value? = nil) throws {
+        let error: Int32
+        if let value = value {
+            error = value.withUnsafeBytes { bytes in
+                fdb_database_set_option(
+                    database,
+                    FDBDatabaseOption(option.rawValue),
+                    bytes.bindMemory(to: UInt8.self).baseAddress,
+                    Int32(value.count)
+                )
+            }
+        } else {
+            error = fdb_database_set_option(database, FDBDatabaseOption(option.rawValue), nil, 0)
+        }
+
+        if error != 0 {
+            throw FdbError(code: error)
+        }
+    }
+
+    /// Sets a database option with a string value.
+    ///
+    /// - Parameters:
+    ///   - option: The database option to set.
+    ///   - value: The string value for the option.
+    /// - Throws: `FdbError` if the option cannot be set.
+    public func setOption(_ option: Fdb.DatabaseOption, value: String) throws {
+        try setOption(option, value: Array(value.utf8))
+    }
+
+    /// Sets a database option with an integer value.
+    ///
+    /// - Parameters:
+    ///   - option: The database option to set.
+    ///   - value: The integer value for the option.
+    /// - Throws: `FdbError` if the option cannot be set.
+    public func setOption(_ option: Fdb.DatabaseOption, value: Int) throws {
+        var val = Int64(value).littleEndian
+        try withUnsafeBytes(of: &val) { bytes in
+            try setOption(option, value: Array(bytes))
+        }
+    }
 }
