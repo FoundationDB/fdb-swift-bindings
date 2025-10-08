@@ -1136,31 +1136,6 @@ func atomicOpByteMax() async throws {
     #expect(resultString == "zebra", "byte_max should choose lexicographically larger value")
 }
 
-@Test("network option setting - method validation")
-func networkOptionMethods() throws {
-    // Test that network option methods accept different parameter types
-    // Note: These tests verify the API works but don't actually set options
-    // since network initialization happens globally
-
-    // Test Data parameter
-    let data = [UInt8]("test_value".utf8)
-    // This would normally throw if the method signature was wrong
-
-    // Test String parameter
-    _ = "test_string"
-    // This would normally throw if the method signature was wrong
-
-    // Test Int parameter
-    _ = 1_048_576
-    // This would normally throw if the method signature was wrong
-
-    // Test no parameter (for boolean options)
-    // This would normally throw if the method signature was wrong
-
-    // If we get here, the method signatures are correct
-    #expect(data.count > 0, "Network option method signatures are valid")
-}
-
 @Test("network option enum values")
 func networkOptionEnumValues() {
     // Test that network option enum has expected values

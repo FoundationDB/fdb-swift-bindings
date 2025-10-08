@@ -37,7 +37,7 @@ import CFoundationDB
 public class FdbClient {
     /// FoundationDB API version constants.
     public enum APIVersion {
-        /// The current supported API version (730).
+        /// The current supported API version (740).
         public static let current: Int32 = 740
     }
 
