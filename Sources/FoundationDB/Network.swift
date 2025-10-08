@@ -43,6 +43,7 @@ class FdbNetwork {
 
     /// Indicates whether the network has been set up.
     private nonisolated(unsafe) var networkSetup = false
+
     /// The pthread handle for the network thread.
     private nonisolated(unsafe) var networkThread: pthread_t? = nil
 
