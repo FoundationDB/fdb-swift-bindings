@@ -2,13 +2,6 @@
 
 Swift bindings for FoundationDB, providing a native Swift API for interacting with FoundationDB clusters.
 
-## Features
-
-- **Native Swift API** - Idiomatic Swift interfaces for FoundationDB operations
-- **Async/Await Support** - Modern Swift concurrency with async sequences
-- **High Performance** - Optimized range iteration with background pre-fetching
-- **Type Safety** - Swift's type system for safer database operations
-
 ## Quick Start
 
 ### Initialize the Client
@@ -66,26 +59,9 @@ try await database.withTransaction { transaction in
 }
 ```
 
-## Key Components
-
-- **Transaction Management** - Automatic retry logic and conflict resolution
-- **AsyncKVSequence** - Memory-efficient streaming iteration with background pre-fetching
-- **Key Selectors** - Flexible key positioning for range queries
-- **Atomic Operations** - Built-in atomic mutations (ADD, AND, OR, etc.)
-- **Network Options** - Configurable client behavior and performance tuning
-
-## Performance
-
-The bindings include several performance optimizations:
-
-- **Background Pre-fetching** - Range queries pre-fetch next batch while processing current data
-- **Streaming Results** - Large result sets don't require full buffering in memory
-- **Connection Pooling** - Efficient connection management to FoundationDB clusters
-- **Configurable Batching** - Tunable batch sizes for optimal throughput
-
 ## Requirements
 
-- Swift 5.7+
+- Swift 6.0+
 - FoundationDB 7.1+
 - macOS 12+ / Linux
 
