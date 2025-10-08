@@ -276,6 +276,18 @@ public protocol ITransaction: Sendable {
     ///   - mutationType: The type of atomic operation to perform.
     func atomicOp(key: Fdb.Key, param: Fdb.Value, mutationType: Fdb.MutationType)
 
+    /// Adds a conflict range to the transaction.
+    ///
+    /// Conflict ranges are used to manually declare the read and write sets of the transaction.
+    /// This can be useful for ensuring serializability when certain keys are accessed indirectly.
+    ///
+    /// - Parameters:
+    ///   - beginKey: The start of the range (inclusive) as a byte array.
+    ///   - endKey: The end of the range (exclusive) as a byte array.
+    ///   - type: The type of conflict range (read or write).
+    /// - Throws: `FdbError` if the operation fails.
+    func addConflictRange(beginKey: Fdb.Key, endKey: Fdb.Key, type: Fdb.ConflictRangeType) throws
+
     // MARK: - Transaction option methods
 
     /// Sets a transaction option with an optional value.

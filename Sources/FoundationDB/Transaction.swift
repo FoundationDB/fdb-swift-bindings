@@ -211,6 +211,25 @@ public class FdbTransaction: ITransaction, @unchecked Sendable {
         ).getAsync()?.value ?? 0
     }
 
+    public func addConflictRange(beginKey: Fdb.Key, endKey: Fdb.Key, type: Fdb.ConflictRangeType) throws {
+        let error = beginKey.withUnsafeBytes { beginKeyBytes in
+            endKey.withUnsafeBytes { endKeyBytes in
+                fdb_transaction_add_conflict_range(
+                    transaction,
+                    beginKeyBytes.bindMemory(to: UInt8.self).baseAddress,
+                    Int32(beginKey.count),
+                    endKeyBytes.bindMemory(to: UInt8.self).baseAddress,
+                    Int32(endKey.count),
+                    FDBConflictRangeType(rawValue: type.rawValue)
+                )
+            }
+        }
+
+        if error != 0 {
+            throw FdbError(code: error)
+        }
+    }
+
     public func getRange(
         beginSelector: Fdb.KeySelector, endSelector: Fdb.KeySelector, limit: Int32 = 0,
         snapshot: Bool

@@ -473,7 +473,7 @@ public extension Fdb {
     }
 
     /** Conflict range types used internally by the C API. */
-    enum ConflictRangeType: UInt32, @unchecked Sendable {
+    public enum ConflictRangeType: UInt32, @unchecked Sendable {
         /** Used to add a read conflict range */
         case read = 0
 
