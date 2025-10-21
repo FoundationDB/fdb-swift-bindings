@@ -61,7 +61,7 @@ try await database.withTransaction { transaction in
 
 ## Requirements
 
-- Swift 6.0+
+- Swift 6.1+
 - FoundationDB 7.1+
 - macOS 12+ / Linux
 

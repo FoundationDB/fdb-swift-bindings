@@ -1293,7 +1293,7 @@ func transactionSizeLimitOption() async throws {
     let newTransaction = try database.createTransaction()
 
     // Set a very small size limit (100 bytes)
-    try newTransaction.setSizeLimit(100)
+    try newTransaction.setOption(.sizeLimit, 100)
 
     // Try to write more data than the limit allows
     let largeValue = String(repeating: "x", count: 200)

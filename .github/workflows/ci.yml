@@ -12,10 +12,8 @@ jobs:
     strategy:
       matrix:
         fdb-version:
-          - "7.1.61"
           - "7.3.43"
         swift-version:
-          - "6.0"
           - "6.1"
 
     name: FDB/Swift Bindings - ${{ matrix.fdb-version }} (Swift ${{ matrix.swift-version }})
@@ -37,9 +35,16 @@ jobs:
         fdbcli --exec status --timeout 10
 
     - name: Setup Swift ${{ matrix.swift-version }}
-      uses: swift-actions/setup-swift@v2
-      with:
-        swift-version: "${{ matrix.swift-version }}"
+      run: |
+        # Download and install Swift
+        SWIFT_VERSION="${{ matrix.swift-version }}"
+        SWIFT_URL="https://download.swift.org/swift-${SWIFT_VERSION}-release/ubuntu2204/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-ubuntu22.04.tar.gz"
+
+        wget $SWIFT_URL
+        tar xzf swift-${SWIFT_VERSION}-RELEASE-ubuntu22.04.tar.gz
+        sudo mv swift-${SWIFT_VERSION}-RELEASE-ubuntu22.04 /usr/share/swift
+
+        echo "/usr/share/swift/usr/bin" >> $GITHUB_PATH
 
     - name: Build Bindings
       run: swift build
