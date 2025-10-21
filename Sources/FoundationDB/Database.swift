@@ -70,10 +70,10 @@ public final class FDBDatabase: DatabaseProtocol {
     /// Sets a database option with a byte array value.
     ///
     /// - Parameters:
-    ///   - option: The database option to set.
     ///   - value: The value for the option (optional).
+    ///   - option: The database option to set.
     /// - Throws: `FDBError` if the option cannot be set.
-    public func setOption(_ option: FDB.DatabaseOption, value: FDB.Value? = nil) throws {
+    public func setOption(to value: FDB.Value? = nil, forOption option: FDB.DatabaseOption) throws {
         let error: Int32
         if let value = value {
             error = value.withUnsafeBytes { bytes in
@@ -96,23 +96,23 @@ public final class FDBDatabase: DatabaseProtocol {
     /// Sets a database option with a string value.
     ///
     /// - Parameters:
-    ///   - option: The database option to set.
     ///   - value: The string value for the option.
+    ///   - option: The database option to set.
     /// - Throws: `FDBError` if the option cannot be set.
-    public func setOption(_ option: FDB.DatabaseOption, value: String) throws {
-        try setOption(option, value: Array(value.utf8))
+    public func setOption(to value: String, forOption option: FDB.DatabaseOption) throws {
+        try setOption(to: Array(value.utf8), forOption: option)
     }
 
     /// Sets a database option with an integer value.
     ///
     /// - Parameters:
-    ///   - option: The database option to set.
     ///   - value: The integer value for the option.
+    ///   - option: The database option to set.
     /// - Throws: `FDBError` if the option cannot be set.
-    public func setOption(_ option: FDB.DatabaseOption, value: Int) throws {
+    public func setOption(to value: Int, forOption option: FDB.DatabaseOption) throws {
         var val = Int64(value).littleEndian
         try withUnsafeBytes(of: &val) { bytes in
-            try setOption(option, value: Array(bytes))
+            try setOption(to: Array(bytes), forOption: option)
         }
     }
 }

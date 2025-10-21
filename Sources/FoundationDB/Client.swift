@@ -77,30 +77,30 @@ public final class FDBClient: Sendable {
     /// Sets a network option with an optional byte array value.
     ///
     /// - Parameters:
-    ///   - option: The network option to set.
     ///   - value: Optional byte array value for the option.
+    ///   - option: The network option to set.
     /// - Throws: `FDBError` if the option cannot be set.
-    public static func setNetworkOption(_ option: FDB.NetworkOption, value: [UInt8]? = nil) throws {
+    public static func setNetworkOption(to value: [UInt8]? = nil, forOption option: FDB.NetworkOption) throws {
         try FDBNetwork.shared.setNetworkOption(to: value, forOption: option)
     }
 
     /// Sets a network option with a string value.
     ///
     /// - Parameters:
-    ///   - option: The network option to set.
     ///   - value: String value for the option.
+    ///   - option: The network option to set.
     /// - Throws: `FDBError` if the option cannot be set.
-    public static func setNetworkOption(_ option: FDB.NetworkOption, value: String) throws {
+    public static func setNetworkOption(to value: String, forOption option: FDB.NetworkOption) throws {
         try FDBNetwork.shared.setNetworkOption(to: value, forOption: option)
     }
 
     /// Sets a network option with an integer value.
     ///
     /// - Parameters:
-    ///   - option: The network option to set.
     ///   - value: Integer value for the option.
+    ///   - option: The network option to set.
     /// - Throws: `FDBError` if the option cannot be set.
-    public static func setNetworkOption(_ option: FDB.NetworkOption, value: Int) throws {
+    public static func setNetworkOption(to value: Int, forOption option: FDB.NetworkOption) throws {
         try FDBNetwork.shared.setNetworkOption(to: value, forOption: option)
     }
 }

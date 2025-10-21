@@ -1264,7 +1264,7 @@ func transactionTimeoutOption() async throws {
     let newTransaction = try database.createTransaction()
 
     // Set a very short timeout (1ms) to test timeout functionality
-    try newTransaction.setTimeout(1)
+    try newTransaction.setOption(to: 1, forOption: .timeout)
 
     // This should timeout very quickly
     do {
@@ -1293,7 +1293,7 @@ func transactionSizeLimitOption() async throws {
     let newTransaction = try database.createTransaction()
 
     // Set a very small size limit (100 bytes)
-    try newTransaction.setOption(.sizeLimit, 100)
+    try newTransaction.setOption(to: 100, forOption: .sizeLimit)
 
     // Try to write more data than the limit allows
     let largeValue = String(repeating: "x", count: 200)
@@ -1314,9 +1314,9 @@ func transactionOptionConvenienceMethods() throws {
     // Note: These tests verify the API exists but don't actually set options
 
     // Test timeout and retry methods
-    // transaction.setTimeout(30000) - would set timeout
-    // transaction.setRetryLimit(10) - would set retry limit
-    // transaction.setMaxRetryDelay(5000) - would set max retry delay
+    // transaction.setOption(to: 30000, forOption: .timeout) - would set timeout
+    // transaction.setOption(to: 10, forOption: .retryLimit) - would set retry limit
+    // transaction.setOption(to: 5000, forOption: .maxRetryDelay) - would set max retry delay
     // transaction.setSizeLimit(1000000) - would set size limit
 
     // Test idempotency methods

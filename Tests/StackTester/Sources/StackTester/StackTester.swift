@@ -507,7 +507,7 @@ class StackMachine {
         case "DISABLE_WRITE_CONFLICT":
             // Not directly available in Swift bindings, could use transaction option
             let transaction = try currentTransaction()
-            try transaction.setOption(.nextWriteNoWriteConflictRange, value: nil)
+            try transaction.setOption(to: nil, forOption: .nextWriteNoWriteConflictRange)
 
         case "TUPLE_PACK":
             let numElements = waitAndPop().item as! Int64

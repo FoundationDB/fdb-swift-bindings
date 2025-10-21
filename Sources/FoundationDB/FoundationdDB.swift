@@ -252,26 +252,26 @@ public protocol TransactionProtocol: Sendable {
     /// Sets a transaction option with an optional value.
     ///
     /// - Parameters:
-    ///   - option: The transaction option to set.
     ///   - value: Optional byte array value for the option.
+    ///   - option: The transaction option to set.
     /// - Throws: `FDBError` if the option cannot be set.
-    func setOption(_ option: FDB.TransactionOption, value: FDB.Value?) throws
+    func setOption(to value: FDB.Value?, forOption option: FDB.TransactionOption) throws
 
     /// Sets a transaction option with a string value.
     ///
     /// - Parameters:
-    ///   - option: The transaction option to set.
     ///   - value: String value for the option.
+    ///   - option: The transaction option to set.
     /// - Throws: `FDBError` if the option cannot be set.
-    func setOption(_ option: FDB.TransactionOption, value: String) throws
+    func setOption(to value: String, forOption option: FDB.TransactionOption) throws
 
     /// Sets a transaction option with an integer value.
     ///
     /// - Parameters:
-    ///   - option: The transaction option to set.
     ///   - value: Integer value for the option.
+    ///   - option: The transaction option to set.
     /// - Throws: `FDBError` if the option cannot be set.
-    func setOption(_ option: FDB.TransactionOption, value: Int) throws
+    func setOption(to value: Int, forOption option: FDB.TransactionOption) throws
 }
 
 /// Default implementation of transaction retry logic for `DatabaseProtocol`.
@@ -394,17 +394,17 @@ extension TransactionProtocol {
         try await getRange(beginKey: beginKey, endKey: endKey, limit: limit, snapshot: snapshot)
     }
 
- public func setOption(_ option: FDB.TransactionOption) throws {
-        try setOption(option, value: nil)
+ public func setOption(forOption option: FDB.TransactionOption) throws {
+        try setOption(to: nil, forOption: option)
     }
 
- public func setOption(_ option: FDB.TransactionOption, value: String) throws {
+ public func setOption(to value: String, forOption option: FDB.TransactionOption) throws {
         let valueBytes = [UInt8](value.utf8)
-        try setOption(option, value: valueBytes)
+        try setOption(to: valueBytes, forOption: option)
     }
 
- public func setOption(_ option: FDB.TransactionOption, value: Int) throws {
+ public func setOption(to value: Int, forOption option: FDB.TransactionOption) throws {
         let valueBytes = withUnsafeBytes(of: Int64(value)) { [UInt8]($0) }
-        try setOption(option, value: valueBytes)
+        try setOption(to: valueBytes, forOption: option)
     }
 }

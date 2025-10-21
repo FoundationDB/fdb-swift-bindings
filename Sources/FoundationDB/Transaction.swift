@@ -96,7 +96,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
         }
     }
 
-    public func setOption(_ option: FDB.TransactionOption, value: FDB.Value?) throws {
+    public func setOption(to value: FDB.Value?, forOption option: FDB.TransactionOption) throws {
         let error: Int32
         if let value = value {
             error = value.withUnsafeBytes { bytes in
