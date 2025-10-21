@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        fdb-version:
+          - "7.1.61"
+          - "7.3.43"
+        swift-version:
+          - "6.0"
+          - "6.1"
+
+    name: FDB/Swift Bindings - ${{ matrix.fdb-version }} (Swift ${{ matrix.swift-version }})
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install FoundationDB ${{ matrix.fdb-version }}
+      run: |
+        # Download and install FoundationDB
+        FDB_VERSION="${{ matrix.fdb-version }}"
+        wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb
+        wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb
+        sudo dpkg -i foundationdb-clients_${FDB_VERSION}-1_amd64.deb foundationdb-server_${FDB_VERSION}-1_amd64.deb
+
+        # Wait for FoundationDB to be ready
+        sleep 5
+        fdbcli --exec status --timeout 10
+
+    - name: Setup Swift ${{ matrix.swift-version }}
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: "${{ matrix.swift-version }}"
+
+    - name: Build Bindings
+      run: swift build
+
+    - name: Run Unit Tests
+      run: swift test
