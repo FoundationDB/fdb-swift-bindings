@@ -337,3 +337,79 @@ func tupleInt64DistributedIntegers() throws {
 
     print("tested with n_positives = \(positive), n_negatives = \(negative)")
 }
+
+@Test("Tuple equality - same values")
+func tupleEquality() throws {
+    let tuple1 = Tuple("hello", 42, true, 3.14)
+    let tuple2 = Tuple("hello", 42, true, 3.14)
+
+    #expect(tuple1 == tuple2, "Tuples with same values should be equal")
+}
+
+@Test("Tuple equality - different values")
+func tupleInequality() throws {
+    let tuple1 = Tuple("hello", 42, true)
+    let tuple2 = Tuple("hello", 43, true)
+
+    #expect(tuple1 != tuple2, "Tuples with different values should not be equal")
+}
+
+@Test("Tuple equality - different lengths")
+func tupleInequalityDifferentLengths() throws {
+    let tuple1 = Tuple("hello", 42)
+    let tuple2 = Tuple("hello", 42, true)
+
+    #expect(tuple1 != tuple2, "Tuples with different lengths should not be equal")
+}
+
+@Test("Tuple equality - nested tuples")
+func tupleEqualityNested() throws {
+    let inner1 = Tuple("nested", 123)
+    let inner2 = Tuple("nested", 123)
+    let tuple1 = Tuple("outer", inner1, "end")
+    let tuple2 = Tuple("outer", inner2, "end")
+
+    #expect(tuple1 == tuple2, "Tuples with equal nested tuples should be equal")
+}
+
+@Test("Tuple hashability - same values produce same hash")
+func tupleHashabilitySameValues() throws {
+    let tuple1 = Tuple("hello", 42, true, 3.14)
+    let tuple2 = Tuple("hello", 42, true, 3.14)
+
+    #expect(tuple1.hashValue == tuple2.hashValue, "Tuples with same values should have same hash")
+}
+
+@Test("Tuple hashability - can be used in Set")
+func tupleHashabilitySet() throws {
+    let tuple1 = Tuple("hello", 42)
+    let tuple2 = Tuple("world", 99)
+    let tuple3 = Tuple("hello", 42)  // duplicate of tuple1
+
+    var set = Set<Tuple>()
+    set.insert(tuple1)
+    set.insert(tuple2)
+    set.insert(tuple3)
+
+    #expect(set.count == 2, "Set should contain only 2 unique tuples")
+    #expect(set.contains(tuple1), "Set should contain tuple1")
+    #expect(set.contains(tuple2), "Set should contain tuple2")
+    #expect(set.contains(tuple3), "Set should contain tuple3 (same as tuple1)")
+}
+
+@Test("Tuple hashability - can be used as Dictionary key")
+func tupleHashabilityDictionary() throws {
+    let key1 = Tuple("user", 123)
+    let key2 = Tuple("user", 456)
+    let key3 = Tuple("user", 123)  // duplicate of key1
+
+    var dict: [Tuple: String] = [:]
+    dict[key1] = "Alice"
+    dict[key2] = "Bob"
+    dict[key3] = "Charlie"  // should overwrite key1
+
+    #expect(dict.count == 2, "Dictionary should contain 2 entries")
+    #expect(dict[key1] == "Charlie", "key1 value should be overwritten to 'Charlie'")
+    #expect(dict[key2] == "Bob", "key2 value should be 'Bob'")
+    #expect(dict[key3] == "Charlie", "key3 (same as key1) should retrieve 'Charlie'")
+}

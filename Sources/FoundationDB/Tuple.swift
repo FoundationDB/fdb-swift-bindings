@@ -43,13 +43,13 @@ enum TupleTypeCode: UInt8, CaseIterable {
     case versionstamp = 0x33
 }
 
-public protocol TupleElement: Sendable {
+public protocol TupleElement: Sendable, Hashable, Equatable {
     func encodeTuple() -> FDB.Bytes
     static func decodeTuple(from bytes: FDB.Bytes, at offset: inout Int) throws -> Self
 }
 
 // TODO: Make it a TypedTuple so that we don't have to typecast manually.
-public struct Tuple: Sendable {
+public struct Tuple: Sendable, Hashable, Equatable {
     private let elements: [any TupleElement]
 
     public init(_ elements: any TupleElement...) {
@@ -121,6 +121,28 @@ public struct Tuple: Sendable {
 
         return elements
     }
+
+    public static func == (lhs: Tuple, rhs: Tuple) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+
+        for i in 0..<lhs.count {
+            // Compare encoded bytes since Swift doesn't allow direct comparison of existential types.
+            // This is semantically correct because the tuple encoding is canonical.
+            if lhs.elements[i].encodeTuple() != rhs.elements[i].encodeTuple() {
+                return false
+            }
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(elements.count)
+        for element in elements {
+            // Hash encoded bytes since Swift doesn't allow direct hashing of existential types.
+            // This ensures consistency with equality semantics.
+            hasher.combine(element.encodeTuple())
+        }
+    }
 }
 
 struct TupleNil: TupleElement {
@@ -130,6 +152,14 @@ struct TupleNil: TupleElement {
 
     static func decodeTuple(from _: FDB.Bytes, at _: inout Int) throws -> TupleNil {
         return TupleNil()
+    }
+
+    static func == (lhs: TupleNil, rhs: TupleNil) -> Bool {
+        return true
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(0 as UInt8)
     }
 }
 
