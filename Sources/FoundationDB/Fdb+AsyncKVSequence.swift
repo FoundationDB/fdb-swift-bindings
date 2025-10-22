@@ -61,7 +61,7 @@ extension FDB {
     ///
     /// This design minimizes the impact of network latency on iteration performance.
     public struct AsyncKVSequence: AsyncSequence {
-        public typealias Element = KeyValue
+        public typealias Element = (Bytes, Bytes)
 
         /// The transaction used for range queries
         let transaction: TransactionProtocol
@@ -172,7 +172,7 @@ extension FDB {
             ///
             /// - Returns: The next key-value pair, or `nil` if sequence is exhausted
             /// - Throws: `FDBError` if the database operation fails
-            public mutating func next() async throws -> KeyValue? {
+            public mutating func next() async throws -> Element? {
                 if isExhausted {
                     return nil
                 }

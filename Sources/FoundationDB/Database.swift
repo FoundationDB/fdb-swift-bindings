@@ -73,7 +73,7 @@ public final class FDBDatabase: DatabaseProtocol {
     ///   - value: The value for the option (optional).
     ///   - option: The database option to set.
     /// - Throws: `FDBError` if the option cannot be set.
-    public func setOption(to value: FDB.Value? = nil, forOption option: FDB.DatabaseOption) throws {
+    public func setOption(to value: FDB.Bytes? = nil, forOption option: FDB.DatabaseOption) throws {
         let error: Int32
         if let value = value {
             error = value.withUnsafeBytes { bytes in

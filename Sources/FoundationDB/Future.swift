@@ -190,7 +190,7 @@ struct ResultInt64: FutureResult {
 /// Used for operations like key selectors that resolve to actual keys.
 struct ResultKey: FutureResult {
     /// The extracted key, or nil if no key was returned.
-    let value: FDB.Key?
+    let value: FDB.Bytes?
 
     /// Extracts a key from the future.
     ///
@@ -220,7 +220,7 @@ struct ResultKey: FutureResult {
 /// Used for get operations that retrieve values associated with keys.
 struct ResultValue: FutureResult {
     /// The extracted value, or nil if no value was found.
-    let value: FDB.Value?
+    let value: FDB.Bytes?
 
     /// Extracts a value from the future.
     ///
@@ -253,6 +253,7 @@ struct ResultValue: FutureResult {
 public struct ResultRange: FutureResult {
     /// The array of key-value pairs returned by the range operation.
     public let records: FDB.KeyValueArray
+
     /// Indicates whether there are more records beyond this result.
     public let more: Bool
 

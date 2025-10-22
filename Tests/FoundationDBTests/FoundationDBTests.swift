@@ -46,7 +46,7 @@ extension String {
 }
 
 extension TransactionProtocol {
-    func getValue(for key: String, snapshot: Bool = false) async throws -> FDB.Value? {
+    func getValue(for key: String, snapshot: Bool = false) async throws -> FDB.Bytes? {
         let keyBytes = [UInt8](key.utf8)
         return try await getValue(for: keyBytes, snapshot: snapshot)
     }
@@ -137,8 +137,8 @@ func setValueBytes() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_byte_key".utf8)
-    let value: FDB.Value = [UInt8]("test_byte_value".utf8)
+    let key: FDB.Bytes = [UInt8]("test_byte_key".utf8)
+    let value: FDB.Bytes = [UInt8]("test_byte_value".utf8)
 
     newTransaction.setValue(value, for: key)
 
@@ -177,8 +177,8 @@ func clearBytes() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_clear_key".utf8)
-    let value: FDB.Value = [UInt8]("test_clear_value".utf8)
+    let key: FDB.Bytes = [UInt8]("test_clear_key".utf8)
+    let value: FDB.Bytes = [UInt8]("test_clear_value".utf8)
 
     newTransaction.setValue(value, for: key)
     let retrievedValueBefore = try await newTransaction.getValue(for: key)
@@ -224,13 +224,13 @@ func clearRangeBytes() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key1: FDB.Key = [UInt8]("test_range_key_a".utf8)
-    let key2: FDB.Key = [UInt8]("test_range_key_b".utf8)
-    let key3: FDB.Key = [UInt8]("test_range_key_c".utf8)
-    let value: FDB.Value = [UInt8]("test_value".utf8)
+    let key1: FDB.Bytes = [UInt8]("test_range_key_a".utf8)
+    let key2: FDB.Bytes = [UInt8]("test_range_key_b".utf8)
+    let key3: FDB.Bytes = [UInt8]("test_range_key_c".utf8)
+    let value: FDB.Bytes = [UInt8]("test_value".utf8)
 
-    let beginKey: FDB.Key = [UInt8]("test_range_key_a".utf8)
-    let endKey: FDB.Key = [UInt8]("test_range_key_c".utf8)
+    let beginKey: FDB.Bytes = [UInt8]("test_range_key_a".utf8)
+    let endKey: FDB.Bytes = [UInt8]("test_range_key_c".utf8)
 
     newTransaction.setValue(value, for: key1)
     newTransaction.setValue(value, for: key2)
@@ -371,16 +371,16 @@ func getKeyWithSelectable() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_selectable_key".utf8)
-    let value: FDB.Value = [UInt8]("test_selectable_value".utf8)
+    let key: FDB.Bytes = [UInt8]("test_selectable_key".utf8)
+    let value: FDB.Bytes = [UInt8]("test_selectable_value".utf8)
     newTransaction.setValue(value, for: key)
     _ = try await newTransaction.commit()
 
     let readTransaction = try database.createTransaction()
 
-    // Test with FDB.Key (which implements Selectable)
+    // Test with FDB.Bytes (which implements Selectable)
     let resultWithKey = try await readTransaction.getKey(selector: key)
-    #expect(resultWithKey == key, "getKey with FDB.Key should work")
+    #expect(resultWithKey == key, "getKey with FDB.Bytes should work")
 
     // Test with String (which implements Selectable)
     let stringKey = "test_selectable_key"
@@ -503,12 +503,12 @@ func getRangeBytes() async throws {
 
     let newTransaction = try database.createTransaction()
     // Set up test data with byte arrays
-    let key1: FDB.Key = [UInt8]("test_byte_range_001".utf8)
-    let key2: FDB.Key = [UInt8]("test_byte_range_002".utf8)
-    let key3: FDB.Key = [UInt8]("test_byte_range_003".utf8)
-    let value1: FDB.Value = [UInt8]("byte_value1".utf8)
-    let value2: FDB.Value = [UInt8]("byte_value2".utf8)
-    let value3: FDB.Value = [UInt8]("byte_value3".utf8)
+    let key1: FDB.Bytes = [UInt8]("test_byte_range_001".utf8)
+    let key2: FDB.Bytes = [UInt8]("test_byte_range_002".utf8)
+    let key3: FDB.Bytes = [UInt8]("test_byte_range_003".utf8)
+    let value1: FDB.Bytes = [UInt8]("byte_value1".utf8)
+    let value2: FDB.Bytes = [UInt8]("byte_value2".utf8)
+    let value3: FDB.Bytes = [UInt8]("byte_value3".utf8)
 
     newTransaction.setValue(value1, for: key1)
     newTransaction.setValue(value2, for: key2)
@@ -517,8 +517,8 @@ func getRangeBytes() async throws {
 
     // Test range query with byte arrays
     let readTransaction = try database.createTransaction()
-    let beginKey: FDB.Key = [UInt8]("test_byte_range_001".utf8)
-    let endKey: FDB.Key = [UInt8]("test_byte_range_003".utf8)
+    let beginKey: FDB.Bytes = [UInt8]("test_byte_range_001".utf8)
+    let endKey: FDB.Bytes = [UInt8]("test_byte_range_003".utf8)
     let result = try await readTransaction.getRange(beginKey: beginKey, endKey: endKey)
 
     #expect(!result.more)
@@ -610,12 +610,12 @@ func getRangeWithKeySelectors() async throws {
 
     let newTransaction = try database.createTransaction()
     // Set up test data
-    let key1: FDB.Key = [UInt8]("test_selector_001".utf8)
-    let key2: FDB.Key = [UInt8]("test_selector_002".utf8)
-    let key3: FDB.Key = [UInt8]("test_selector_003".utf8)
-    let value1: FDB.Value = [UInt8]("selector_value1".utf8)
-    let value2: FDB.Value = [UInt8]("selector_value2".utf8)
-    let value3: FDB.Value = [UInt8]("selector_value3".utf8)
+    let key1: FDB.Bytes = [UInt8]("test_selector_001".utf8)
+    let key2: FDB.Bytes = [UInt8]("test_selector_002".utf8)
+    let key3: FDB.Bytes = [UInt8]("test_selector_003".utf8)
+    let value1: FDB.Bytes = [UInt8]("selector_value1".utf8)
+    let value2: FDB.Bytes = [UInt8]("selector_value2".utf8)
+    let value3: FDB.Bytes = [UInt8]("selector_value3".utf8)
 
     newTransaction.setValue(value1, for: key1)
     newTransaction.setValue(value2, for: key2)
@@ -699,7 +699,7 @@ func getRangeWithSelectable() async throws {
 
     // Test using the general Selectable protocol with mixed key types
     let readTransaction = try database.createTransaction()
-    let beginKey: FDB.Key = [UInt8]("test_mixed_001".utf8)
+    let beginKey: FDB.Bytes = [UInt8]("test_mixed_001".utf8)
     let endString = "test_mixed_003"
     let result = try await readTransaction.getRange(begin: beginKey, end: endString)
 
@@ -934,14 +934,14 @@ func atomicOpAdd() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_atomic_add".utf8)
+    let key: FDB.Bytes = [UInt8]("test_atomic_add".utf8)
 
     // Initial value: little-endian 64-bit integer 10
-    let initialValue: FDB.Value = withUnsafeBytes(of: Int64(10).littleEndian) { Array($0) }
+    let initialValue: FDB.Bytes = withUnsafeBytes(of: Int64(10).littleEndian) { Array($0) }
     newTransaction.setValue(initialValue, for: key)
 
     // Add 5 using atomic operation
-    let addValue: FDB.Value = withUnsafeBytes(of: Int64(5).littleEndian) { Array($0) }
+    let addValue: FDB.Bytes = withUnsafeBytes(of: Int64(5).littleEndian) { Array($0) }
     newTransaction.atomicOp(key: key, param: addValue, mutationType: .add)
 
     _ = try await newTransaction.commit()
@@ -966,14 +966,14 @@ func atomicOpBitAnd() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_atomic_and".utf8)
+    let key: FDB.Bytes = [UInt8]("test_atomic_and".utf8)
 
     // Initial value: 0xFF (255)
-    let initialValue: FDB.Value = [0xFF]
+    let initialValue: FDB.Bytes = [0xFF]
     newTransaction.setValue(initialValue, for: key)
 
     // AND with 0x0F (15)
-    let andValue: FDB.Value = [0x0F]
+    let andValue: FDB.Bytes = [0x0F]
     newTransaction.atomicOp(key: key, param: andValue, mutationType: .bitAnd)
 
     _ = try await newTransaction.commit()
@@ -997,14 +997,14 @@ func atomicOpBitOr() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_atomic_or".utf8)
+    let key: FDB.Bytes = [UInt8]("test_atomic_or".utf8)
 
     // Initial value: 0x0F (15)
-    let initialValue: FDB.Value = [0x0F]
+    let initialValue: FDB.Bytes = [0x0F]
     newTransaction.setValue(initialValue, for: key)
 
     // OR with 0xF0 (240)
-    let orValue: FDB.Value = [0xF0]
+    let orValue: FDB.Bytes = [0xF0]
     newTransaction.atomicOp(key: key, param: orValue, mutationType: .bitOr)
 
     _ = try await newTransaction.commit()
@@ -1028,14 +1028,14 @@ func atomicOpBitXor() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_atomic_xor".utf8)
+    let key: FDB.Bytes = [UInt8]("test_atomic_xor".utf8)
 
     // Initial value: 0xFF (255)
-    let initialValue: FDB.Value = [0xFF]
+    let initialValue: FDB.Bytes = [0xFF]
     newTransaction.setValue(initialValue, for: key)
 
     // XOR with 0x0F (15)
-    let xorValue: FDB.Value = [0x0F]
+    let xorValue: FDB.Bytes = [0x0F]
     newTransaction.atomicOp(key: key, param: xorValue, mutationType: .bitXor)
 
     _ = try await newTransaction.commit()
@@ -1059,14 +1059,14 @@ func atomicOpMax() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_atomic_max".utf8)
+    let key: FDB.Bytes = [UInt8]("test_atomic_max".utf8)
 
     // Initial value: little-endian 64-bit integer 10
-    let initialValue: FDB.Value = withUnsafeBytes(of: Int64(10).littleEndian) { Array($0) }
+    let initialValue: FDB.Bytes = withUnsafeBytes(of: Int64(10).littleEndian) { Array($0) }
     newTransaction.setValue(initialValue, for: key)
 
     // Max with 15
-    let maxValue: FDB.Value = withUnsafeBytes(of: Int64(15).littleEndian) { Array($0) }
+    let maxValue: FDB.Bytes = withUnsafeBytes(of: Int64(15).littleEndian) { Array($0) }
     newTransaction.atomicOp(key: key, param: maxValue, mutationType: .max)
 
     _ = try await newTransaction.commit()
@@ -1091,14 +1091,14 @@ func atomicOpMin() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_atomic_min".utf8)
+    let key: FDB.Bytes = [UInt8]("test_atomic_min".utf8)
 
     // Initial value: little-endian 64-bit integer 10
-    let initialValue: FDB.Value = withUnsafeBytes(of: Int64(10).littleEndian) { Array($0) }
+    let initialValue: FDB.Bytes = withUnsafeBytes(of: Int64(10).littleEndian) { Array($0) }
     newTransaction.setValue(initialValue, for: key)
 
     // Min with 5
-    let minValue: FDB.Value = withUnsafeBytes(of: Int64(5).littleEndian) { Array($0) }
+    let minValue: FDB.Bytes = withUnsafeBytes(of: Int64(5).littleEndian) { Array($0) }
     newTransaction.atomicOp(key: key, param: minValue, mutationType: .min)
 
     _ = try await newTransaction.commit()
@@ -1123,14 +1123,14 @@ func atomicOpAppendIfFits() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_atomic_append".utf8)
+    let key: FDB.Bytes = [UInt8]("test_atomic_append".utf8)
 
     // Initial value: "Hello"
-    let initialValue: FDB.Value = [UInt8]("Hello".utf8)
+    let initialValue: FDB.Bytes = [UInt8]("Hello".utf8)
     newTransaction.setValue(initialValue, for: key)
 
     // Append " World"
-    let appendValue: FDB.Value = [UInt8](" World".utf8)
+    let appendValue: FDB.Bytes = [UInt8](" World".utf8)
     newTransaction.atomicOp(key: key, param: appendValue, mutationType: .appendIfFits)
 
     _ = try await newTransaction.commit()
@@ -1155,14 +1155,14 @@ func atomicOpByteMin() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_atomic_byte_min".utf8)
+    let key: FDB.Bytes = [UInt8]("test_atomic_byte_min".utf8)
 
     // Initial value: "zebra"
-    let initialValue: FDB.Value = [UInt8]("zebra".utf8)
+    let initialValue: FDB.Bytes = [UInt8]("zebra".utf8)
     newTransaction.setValue(initialValue, for: key)
 
     // Compare with "apple" (lexicographically smaller)
-    let compareValue: FDB.Value = [UInt8]("apple".utf8)
+    let compareValue: FDB.Bytes = [UInt8]("apple".utf8)
     newTransaction.atomicOp(key: key, param: compareValue, mutationType: .byteMin)
 
     _ = try await newTransaction.commit()
@@ -1187,14 +1187,14 @@ func atomicOpByteMax() async throws {
     _ = try await transaction.commit()
 
     let newTransaction = try database.createTransaction()
-    let key: FDB.Key = [UInt8]("test_atomic_byte_max".utf8)
+    let key: FDB.Bytes = [UInt8]("test_atomic_byte_max".utf8)
 
     // Initial value: "apple"
-    let initialValue: FDB.Value = [UInt8]("apple".utf8)
+    let initialValue: FDB.Bytes = [UInt8]("apple".utf8)
     newTransaction.setValue(initialValue, for: key)
 
     // Compare with "zebra" (lexicographically larger)
-    let compareValue: FDB.Value = [UInt8]("zebra".utf8)
+    let compareValue: FDB.Bytes = [UInt8]("zebra".utf8)
     newTransaction.atomicOp(key: key, param: compareValue, mutationType: .byteMax)
 
     _ = try await newTransaction.commit()
@@ -1486,8 +1486,8 @@ func testGetEstimatedRangeSizeBytes() async throws {
 
     // Get estimated size
     let transaction = try database.createTransaction()
-    let beginKey: FDB.Key = Array("test_size_".utf8)
-    let endKey: FDB.Key = Array("test_size`".utf8)
+    let beginKey: FDB.Bytes = Array("test_size_".utf8)
+    let endKey: FDB.Bytes = Array("test_size`".utf8)
     let estimatedSize = try await transaction.getEstimatedRangeSizeBytes(beginKey: beginKey, endKey: endKey)
 
     // Size should be positive (may not be exact due to sampling)
@@ -1512,8 +1512,8 @@ func testGetRangeSplitPoints() async throws {
 
     // Get split points with 10KB chunks
     let transaction = try database.createTransaction()
-    let beginKey: FDB.Key = Array("test_split_".utf8)
-    let endKey: FDB.Key = Array("test_split`".utf8)
+    let beginKey: FDB.Bytes = Array("test_split_".utf8)
+    let endKey: FDB.Bytes = Array("test_split`".utf8)
     let splitPoints = try await transaction.getRangeSplitPoints(
         beginKey: beginKey,
         endKey: endKey,
@@ -1592,8 +1592,8 @@ func addReadConflictRange() async throws {
 
     // Test adding read conflict range
     let transaction = try database.createTransaction()
-    let beginKey: FDB.Key = Array("test_conflict_a".utf8)
-    let endKey: FDB.Key = Array("test_conflict_b".utf8)
+    let beginKey: FDB.Bytes = Array("test_conflict_a".utf8)
+    let endKey: FDB.Bytes = Array("test_conflict_b".utf8)
 
     // Add read conflict range - should succeed
     try transaction.addConflictRange(beginKey: beginKey, endKey: endKey, type: .read)
@@ -1615,8 +1615,8 @@ func addWriteConflictRange() async throws {
 
     // Test adding write conflict range
     let transaction = try database.createTransaction()
-    let beginKey: FDB.Key = Array("test_write_conflict_a".utf8)
-    let endKey: FDB.Key = Array("test_write_conflict_b".utf8)
+    let beginKey: FDB.Bytes = Array("test_write_conflict_a".utf8)
+    let endKey: FDB.Bytes = Array("test_write_conflict_b".utf8)
 
     // Add write conflict range - should succeed
     try transaction.addConflictRange(beginKey: beginKey, endKey: endKey, type: .write)
@@ -1643,8 +1643,8 @@ func conflictRangeDetectsConcurrentWrites() async throws {
 
     // Create first transaction and add a write conflict range
     let transaction1 = try database.createTransaction()
-    let beginKey: FDB.Key = Array("test_concurrent_key".utf8)
-    var endKey: FDB.Key = beginKey
+    let beginKey: FDB.Bytes = Array("test_concurrent_key".utf8)
+    var endKey: FDB.Bytes = beginKey
     endKey.append(0x00)
 
     try transaction1.addConflictRange(beginKey: beginKey, endKey: endKey, type: .write)
@@ -1678,17 +1678,17 @@ func addMultipleConflictRanges() async throws {
     let transaction = try database.createTransaction()
 
     // Add multiple read conflict ranges
-    let beginKey1: FDB.Key = Array("test_multi_a".utf8)
-    let endKey1: FDB.Key = Array("test_multi_b".utf8)
+    let beginKey1: FDB.Bytes = Array("test_multi_a".utf8)
+    let endKey1: FDB.Bytes = Array("test_multi_b".utf8)
     try transaction.addConflictRange(beginKey: beginKey1, endKey: endKey1, type: .read)
 
-    let beginKey2: FDB.Key = Array("test_multi_c".utf8)
-    let endKey2: FDB.Key = Array("test_multi_d".utf8)
+    let beginKey2: FDB.Bytes = Array("test_multi_c".utf8)
+    let endKey2: FDB.Bytes = Array("test_multi_d".utf8)
     try transaction.addConflictRange(beginKey: beginKey2, endKey: endKey2, type: .read)
 
     // Add write conflict range
-    let beginKey3: FDB.Key = Array("test_multi_x".utf8)
-    let endKey3: FDB.Key = Array("test_multi_y".utf8)
+    let beginKey3: FDB.Bytes = Array("test_multi_x".utf8)
+    let endKey3: FDB.Bytes = Array("test_multi_y".utf8)
     try transaction.addConflictRange(beginKey: beginKey3, endKey: endKey3, type: .write)
 
     // Should be able to commit with multiple conflict ranges

@@ -33,16 +33,12 @@ typealias CCallback = @convention(c) (UnsafeRawPointer?, UnsafeRawPointer?) -> V
 public enum FDB {
     /// A FoundationDB version number (64-bit integer).
     public typealias Version = Int64
+
     /// Raw byte data used throughout the FoundationDB API.
     public typealias Bytes = [UInt8]
-    /// A FoundationDB key (sequence of bytes).
-    public typealias Key = Bytes
-    /// A FoundationDB value (sequence of bytes).
-    public typealias Value = Bytes
-    /// A key-value pair tuple.
-    public typealias KeyValue = (Key, Value)
+
     /// An array of key-value pairs.
-    public typealias KeyValueArray = [KeyValue]
+    public typealias KeyValueArray = [(Bytes, Bytes)]
 
     /// Protocol for types that can be converted to key selectors.
     ///
@@ -70,7 +66,7 @@ public enum FDB {
     /// ```
     public struct KeySelector: Selectable, Sendable {
         /// The reference key for this selector.
-        public let key: Key
+        public let key: Bytes
         /// Whether to include the reference key itself in selection.
         public let orEqual: Bool
         /// Offset from the selected key position.
@@ -82,7 +78,7 @@ public enum FDB {
         ///   - key: The reference key.
         ///   - orEqual: Whether to include the reference key itself.
         ///   - offset: Offset from the selected position.
-        public init(key: Key, orEqual: Bool, offset: Int) {
+        public init(key: Bytes, orEqual: Bool, offset: Int) {
             self.key = key
             self.orEqual = orEqual
             self.offset = offset
@@ -101,7 +97,7 @@ public enum FDB {
         ///
         /// - Parameter key: The reference key as a byte array.
         /// - Returns: A key selector that selects the first key >= the reference key.
-        public static func firstGreaterOrEqual(_ key: Key) -> KeySelector {
+        public static func firstGreaterOrEqual(_ key: FDB.Bytes) -> KeySelector {
             return KeySelector(key: key, orEqual: false, offset: 1)
         }
 
@@ -109,7 +105,7 @@ public enum FDB {
         ///
         /// - Parameter key: The reference key as a byte array.
         /// - Returns: A key selector that selects the first key > the reference key.
-        public static func firstGreaterThan(_ key: Key) -> KeySelector {
+        public static func firstGreaterThan(_ key: FDB.Bytes) -> KeySelector {
             return KeySelector(key: key, orEqual: true, offset: 1)
         }
 
@@ -117,7 +113,7 @@ public enum FDB {
         ///
         /// - Parameter key: The reference key as a byte array.
         /// - Returns: A key selector that selects the last key <= the reference key.
-        public static func lastLessOrEqual(_ key: Key) -> KeySelector {
+        public static func lastLessOrEqual(_ key: FDB.Bytes) -> KeySelector {
             return KeySelector(key: key, orEqual: true, offset: 0)
         }
 
@@ -125,7 +121,7 @@ public enum FDB {
         ///
         /// - Parameter key: The reference key as a byte array.
         /// - Returns: A key selector that selects the last key < the reference key.
-        public static func lastLessThan(_ key: Key) -> KeySelector {
+        public static func lastLessThan(_ key: FDB.Bytes) -> KeySelector {
             return KeySelector(key: key, orEqual: false, offset: 0)
         }
     }
@@ -135,7 +131,7 @@ public enum FDB {
 ///
 /// This allows key byte arrays to be used directly in range operations
 /// by converting them to "first greater or equal" key selectors.
-extension FDB.Key: FDB.Selectable {
+extension FDB.Bytes: FDB.Selectable {
     /// Converts this key to a key selector using "first greater or equal" semantics.
     ///
     /// - Returns: A key selector that selects the first key >= this key.
