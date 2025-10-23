@@ -65,7 +65,7 @@ final class FDBNetwork: Sendable {
 
     /// Stops the FoundationDB network and waits for the network thread to complete.
     deinit {
-        try networkThread.withLock { networkThread in
+        _ = networkThread.withLock { networkThread in
             if networkThread == nil {
                 return networkThread
             }

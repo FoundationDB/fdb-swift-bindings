@@ -19,7 +19,7 @@
  */
 
 import Foundation
-import FoundationDB
+@testable import FoundationDB
 
 // Simple stack entry - equivalent to Go's stackEntry
 struct StackEntry {
@@ -32,7 +32,7 @@ class StackMachine {
     private var stack: [StackEntry] = []
     private var database: FDBDatabase
     private let verbose: Bool
-    private var transaction: (any TransactionProtocol)?
+    private var transaction: FDBTransaction?
     private var transactionMap: [String: any TransactionProtocol] = [:]
     private var transactionName: String = "MAIN"
     private var lastVersion: Int64 = 0
@@ -296,11 +296,11 @@ class StackMachine {
 
         case "COMMIT":
             let transaction = try currentTransaction()
-            let success = try await transaction.commit()
+            _ = try await transaction.commit()
             store(idx, Array("COMMIT_RESULT".utf8))
 
         case "RESET":
-            if let transaction = transactionMap[transactionName] as? FDBTransaction {
+            if transactionMap[transactionName] as? FDBTransaction != nil {
                 try newTransaction()
             }
 
@@ -329,14 +329,14 @@ class StackMachine {
         case "GET_RANGE":
             // Python/Go order: begin, end, limit, reverse, mode (but Go pops in reverse)
             // Go pops: mode, reverse, limit, endKey, beginKey
-            let mode = waitAndPop().item as! Int64 // Streaming mode, ignore for now
-            let reverse = (waitAndPop().item as! Int64) != 0
+            _ = waitAndPop().item as! Int64 // Streaming mode, ignore for now
+            _ = (waitAndPop().item as! Int64) != 0
             let limit = Int(waitAndPop().item as! Int64)
             let endKey = waitAndPop().item as! [UInt8]
             let beginKey = waitAndPop().item as! [UInt8]
             let transaction = try currentTransaction()
 
-            let result = try await transaction.getRange(
+            let result = try await transaction.getRangeNative(
                 beginKey: beginKey,
                 endKey: endKey,
                 limit: limit,
@@ -348,8 +348,8 @@ class StackMachine {
         case "GET_RANGE_STARTS_WITH":
             // Python order: prefix, limit, reverse, mode (pops 4 parameters)
             // Go order: same but pops in reverse
-            let mode = waitAndPop().item as! Int64 // Streaming mode, ignore for now
-            let reverse = (waitAndPop().item as! Int64) != 0
+            _ = waitAndPop().item as! Int64 // Streaming mode, ignore for now
+            _ = (waitAndPop().item as! Int64) != 0
             let limit = Int(waitAndPop().item as! Int64)
             let prefix = waitAndPop().item as! [UInt8]
             let transaction = try currentTransaction()
@@ -357,7 +357,7 @@ class StackMachine {
             var endKey = prefix
             endKey.append(0xFF)
 
-            let result = try await transaction.getRange(
+            let result = try await transaction.getRangeNative(
                 beginKey: prefix,
                 endKey: endKey,
                 limit: limit,
@@ -370,8 +370,8 @@ class StackMachine {
             // Python pops 10 parameters: begin_key, begin_or_equal, begin_offset, end_key, end_or_equal, end_offset, limit, reverse, mode, prefix
             // Go pops in reverse order
             let prefix = waitAndPop().item as! [UInt8]
-            let mode = waitAndPop().item as! Int64 // Streaming mode, ignore for now
-            let reverse = (waitAndPop().item as! Int64) != 0
+            _ = waitAndPop().item as! Int64 // Streaming mode, ignore for now
+            _ = (waitAndPop().item as! Int64) != 0
             let limit = Int(waitAndPop().item as! Int64)
             let endOffset = Int(waitAndPop().item as! Int64)
             let endOrEqual = (waitAndPop().item as! Int64) != 0
@@ -384,7 +384,7 @@ class StackMachine {
             let endSelector = FDB.KeySelector(key: endKey, orEqual: endOrEqual, offset: endOffset)
             let transaction = try currentTransaction()
 
-            let result = try await transaction.getRange(
+            let result = try await transaction.getRangeNative(
                 beginSelector: beginSelector,
                 endSelector: endSelector,
                 limit: limit,
@@ -651,7 +651,7 @@ class StackMachine {
 
         case "START_THREAD":
             // Threading not supported in current implementation, just consume the instruction
-            let instruction = waitAndPop().item
+            _ = waitAndPop().item
             // Could implement this with Task.detached in the future
 
         case "WAIT_EMPTY":
@@ -680,7 +680,7 @@ class StackMachine {
             let beginKey = prefixTuple.encode()
             let endKey = beginKey + [0xFF] // Simple range end
 
-            let result = try await transaction.getRange(
+            let result = try await transaction.getRangeNative(
                 beginKey: beginKey,
                 endKey: endKey,
                 limit: 0,

@@ -31,7 +31,7 @@ func testTupleNil() throws {
 
     var offset = 1
     let decoded = try TupleNil.decodeTuple(from: encoded, at: &offset)
-    #expect(decoded is TupleNil, "Should decode back to TupleNil")
+    #expect(type(of: decoded) == TupleNil.self, "Should decode back to TupleNil")
     #expect(offset == 1, "Offset should not advance for TupleNil")
 }
 
@@ -336,4 +336,186 @@ func tupleInt64DistributedIntegers() throws {
     }
 
     print("tested with n_positives = \(positive), n_negatives = \(negative)")
+}
+
+@Test("Tuple equality - same values")
+func tupleEquality() throws {
+    let tuple1 = Tuple("hello", 42, true, 3.14)
+    let tuple2 = Tuple("hello", 42, true, 3.14)
+
+    #expect(tuple1 == tuple2, "Tuples with same values should be equal")
+}
+
+@Test("Tuple equality - different values")
+func tupleInequality() throws {
+    let tuple1 = Tuple("hello", 42, true)
+    let tuple2 = Tuple("hello", 43, true)
+
+    #expect(tuple1 != tuple2, "Tuples with different values should not be equal")
+}
+
+@Test("Tuple equality - different lengths")
+func tupleInequalityDifferentLengths() throws {
+    let tuple1 = Tuple("hello", 42)
+    let tuple2 = Tuple("hello", 42, true)
+
+    #expect(tuple1 != tuple2, "Tuples with different lengths should not be equal")
+}
+
+@Test("Tuple equality - nested tuples")
+func tupleEqualityNested() throws {
+    let inner1 = Tuple("nested", 123)
+    let inner2 = Tuple("nested", 123)
+    let tuple1 = Tuple("outer", inner1, "end")
+    let tuple2 = Tuple("outer", inner2, "end")
+
+    #expect(tuple1 == tuple2, "Tuples with equal nested tuples should be equal")
+}
+
+@Test("Tuple hashability - same values produce same hash")
+func tupleHashabilitySameValues() throws {
+    let tuple1 = Tuple("hello", 42, true, 3.14)
+    let tuple2 = Tuple("hello", 42, true, 3.14)
+
+    #expect(tuple1.hashValue == tuple2.hashValue, "Tuples with same values should have same hash")
+}
+
+@Test("Tuple hashability - can be used in Set")
+func tupleHashabilitySet() throws {
+    let tuple1 = Tuple("hello", 42)
+    let tuple2 = Tuple("world", 99)
+    let tuple3 = Tuple("hello", 42)  // duplicate of tuple1
+
+    var set = Set<Tuple>()
+    set.insert(tuple1)
+    set.insert(tuple2)
+    set.insert(tuple3)
+
+    #expect(set.count == 2, "Set should contain only 2 unique tuples")
+    #expect(set.contains(tuple1), "Set should contain tuple1")
+    #expect(set.contains(tuple2), "Set should contain tuple2")
+    #expect(set.contains(tuple3), "Set should contain tuple3 (same as tuple1)")
+}
+
+@Test("Tuple hashability - can be used as Dictionary key")
+func tupleHashabilityDictionary() throws {
+    let key1 = Tuple("user", 123)
+    let key2 = Tuple("user", 456)
+    let key3 = Tuple("user", 123)  // duplicate of key1
+
+    var dict: [Tuple: String] = [:]
+    dict[key1] = "Alice"
+    dict[key2] = "Bob"
+    dict[key3] = "Charlie"  // should overwrite key1
+
+    #expect(dict.count == 2, "Dictionary should contain 2 entries")
+    #expect(dict[key1] == "Charlie", "key1 value should be overwritten to 'Charlie'")
+    #expect(dict[key2] == "Bob", "key2 value should be 'Bob'")
+    #expect(dict[key3] == "Charlie", "key3 (same as key1) should retrieve 'Charlie'")
+}
+
+// MARK: - Edge Cases
+
+@Test("Tuple equality - Float positive and negative zero are unequal")
+func tupleFloatZeroInequality() throws {
+    let tuple1 = Tuple(Float(0.0))
+    let tuple2 = Tuple(Float(-0.0))
+
+    // Note: These are unequal because they have different bit patterns
+    // and encode to different bytes. This differs from Swift's Float equality
+    // where 0.0 == -0.0 is true.
+    #expect(tuple1 != tuple2, "Positive and negative zero have different encodings")
+
+    // Verify they hash differently (important for Set/Dictionary correctness)
+    #expect(tuple1.hashValue != tuple2.hashValue, "Different values must have potentially different hashes")
+}
+
+@Test("Tuple equality - Double positive and negative zero are unequal")
+func tupleDoubleZeroInequality() throws {
+    let tuple1 = Tuple(Double(0.0))
+    let tuple2 = Tuple(Double(-0.0))
+
+    #expect(tuple1 != tuple2, "Positive and negative zero have different encodings")
+    #expect(tuple1.hashValue != tuple2.hashValue, "Different values must have potentially different hashes")
+}
+
+@Test("Tuple equality - Float NaN values are equal")
+func tupleFloatNaNEquality() throws {
+    let tuple1 = Tuple(Float.nan)
+    let tuple2 = Tuple(Float.nan)
+
+    // Note: These are equal because they encode to the same bytes
+    // (same bit pattern). This differs from Swift's Float equality
+    // where Float.nan == Float.nan is false.
+    #expect(tuple1 == tuple2, "NaN values with same bit pattern encode to same bytes")
+    #expect(tuple1.hashValue == tuple2.hashValue, "Equal values must have same hash")
+}
+
+@Test("Tuple equality - Double NaN values are equal")
+func tupleDoubleNaNEquality() throws {
+    let tuple1 = Tuple(Double.nan)
+    let tuple2 = Tuple(Double.nan)
+
+    #expect(tuple1 == tuple2, "NaN values with same bit pattern encode to same bytes")
+    #expect(tuple1.hashValue == tuple2.hashValue, "Equal values must have same hash")
+}
+
+@Test("Tuple equality - Float infinity values")
+func tupleFloatInfinity() throws {
+    let tuple1 = Tuple(Float.infinity)
+    let tuple2 = Tuple(Float.infinity)
+    let tuple3 = Tuple(-Float.infinity)
+
+    #expect(tuple1 == tuple2, "Same infinity values should be equal")
+    #expect(tuple1 != tuple3, "Positive and negative infinity should be unequal")
+}
+
+@Test("Tuple equality - Double infinity values")
+func tupleDoubleInfinity() throws {
+    let tuple1 = Tuple(Double.infinity)
+    let tuple2 = Tuple(Double.infinity)
+    let tuple3 = Tuple(-Double.infinity)
+
+    #expect(tuple1 == tuple2, "Same infinity values should be equal")
+    #expect(tuple1 != tuple3, "Positive and negative infinity should be unequal")
+}
+
+@Test("Tuple equality - empty tuples")
+func tupleEmptyEquality() throws {
+    let tuple1 = Tuple()
+    let tuple2 = Tuple([])
+
+    #expect(tuple1 == tuple2, "Empty tuples should be equal")
+    #expect(tuple1.hashValue == tuple2.hashValue, "Empty tuples should have same hash")
+    #expect(tuple1.count == 0, "Empty tuple should have count 0")
+}
+
+@Test("Tuple hashability - empty tuples in Set")
+func tupleEmptySet() throws {
+    let tuple1 = Tuple()
+    let tuple2 = Tuple([])
+
+    var set = Set<Tuple>()
+    set.insert(tuple1)
+    set.insert(tuple2)
+
+    #expect(set.count == 1, "Empty tuples should be deduplicated in Set")
+}
+
+@Test("Tuple with nil values")
+func tupleWithNil() throws {
+    let tuple1 = Tuple(TupleNil(), "hello", TupleNil())
+    let tuple2 = Tuple(TupleNil(), "hello", TupleNil())
+
+    #expect(tuple1 == tuple2, "Tuples with nil values should be equal")
+    #expect(tuple1.hashValue == tuple2.hashValue, "Tuples with nil values should have same hash")
+    #expect(tuple1.count == 3, "Tuple should have 3 elements including nils")
+}
+
+@Test("Tuple equality - nil values in different positions are unequal")
+func tupleNilPositions() throws {
+    let tuple1 = Tuple(TupleNil(), "hello")
+    let tuple2 = Tuple("hello", TupleNil())
+
+    #expect(tuple1 != tuple2, "Tuples with nils in different positions should be unequal")
 }

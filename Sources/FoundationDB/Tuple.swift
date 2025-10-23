@@ -43,13 +43,33 @@ enum TupleTypeCode: UInt8, CaseIterable {
     case versionstamp = 0x33
 }
 
-public protocol TupleElement: Sendable {
+public protocol TupleElement: Sendable, Hashable, Equatable {
     func encodeTuple() -> FDB.Bytes
     static func decodeTuple(from bytes: FDB.Bytes, at offset: inout Int) throws -> Self
 }
 
 // TODO: Make it a TypedTuple so that we don't have to typecast manually.
-public struct Tuple: Sendable {
+/// A tuple represents an ordered collection of elements that can be encoded to and decoded from bytes.
+///
+/// Tuples can be used as keys in FoundationDB, and their encoding preserves lexicographic ordering.
+///
+/// ## Equality and Hashing
+///
+/// Tuple equality is based on the encoded byte representation of each element, which matches
+/// FoundationDB's tuple comparison semantics. This differs from Swift's native equality for
+/// floating-point values in the following ways:
+///
+/// - **Positive and negative zero**: `Tuple(0.0)` and `Tuple(-0.0)` are **not equal** because
+///   they have different bit patterns and encode to different bytes. This differs from Swift,
+///   where `0.0 == -0.0` is `true`.
+///
+/// - **NaN values**: `Tuple(Float.nan)` and `Tuple(Float.nan)` **are equal** if they have the
+///   same bit pattern, because they encode to the same bytes. This differs from Swift, where
+///   `Float.nan == Float.nan` is `false`.
+///
+/// These semantic differences ensure consistency with FoundationDB's tuple ordering and are
+/// important when using tuples as dictionary keys or in sets.
+public struct Tuple: Sendable, Hashable, Equatable {
     private let elements: [any TupleElement]
 
     public init(_ elements: any TupleElement...) {
@@ -121,6 +141,35 @@ public struct Tuple: Sendable {
 
         return elements
     }
+
+    public static func == (lhs: Tuple, rhs: Tuple) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+
+        for i in 0..<lhs.count {
+            // Swift's type system doesn't allow comparing `any Protocol` existentials directly,
+            // even though TupleElement requires Equatable conformance. We compare encoded bytes
+            // instead, which is semantically correct since tuple encoding is canonical:
+            // equal values always produce equal encodings.
+            //
+            // Note: This means Float/Double comparison follows bit-pattern equality rather than
+            // IEEE 754 equality (e.g., +0.0 and -0.0 are unequal, NaN values with the same bit
+            // pattern are equal). See the Tuple documentation for details.
+            if lhs.elements[i].encodeTuple() != rhs.elements[i].encodeTuple() {
+                return false
+            }
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(elements.count)
+        for element in elements {
+            // Swift's type system doesn't allow hashing `any Protocol` existentials directly,
+            // even though TupleElement requires Hashable conformance. We hash encoded bytes
+            // instead, which ensures consistency with the equality implementation above.
+            hasher.combine(element.encodeTuple())
+        }
+    }
 }
 
 struct TupleNil: TupleElement {
@@ -130,6 +179,16 @@ struct TupleNil: TupleElement {
 
     static func decodeTuple(from _: FDB.Bytes, at _: inout Int) throws -> TupleNil {
         return TupleNil()
+    }
+
+    static func == (lhs: TupleNil, rhs: TupleNil) -> Bool {
+        // All TupleNil instances are equal (representing null/nil)
+        return true
+    }
+
+    func hash(into hasher: inout Hasher) {
+        // Use a constant value for consistency with the null type code
+        hasher.combine(TupleTypeCode.null.rawValue)
     }
 }
 

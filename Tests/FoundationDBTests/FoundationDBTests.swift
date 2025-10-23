@@ -68,22 +68,22 @@ extension TransactionProtocol {
         clearRange(beginKey: beginKeyBytes, endKey: endKeyBytes)
     }
 
-    func readRange(
+    func getRange(
         beginKey: String, endKey: String, snapshot: Bool = false
     ) -> FDB.AsyncKVSequence {
         let beginSelector = FDB.KeySelector.firstGreaterOrEqual(beginKey)
         let endSelector = FDB.KeySelector.firstGreaterOrEqual(endKey)
-        return readRange(
+        return getRange(
             beginSelector: beginSelector, endSelector: endSelector, snapshot: snapshot
         )
     }
 
-    func getRange(
+    func getRangeNative(
         beginKey: String, endKey: String, limit: Int = 0, snapshot: Bool = false
     ) async throws -> ResultRange {
         let beginKeyBytes = [UInt8](beginKey.utf8)
         let endKeyBytes = [UInt8](endKey.utf8)
-        return try await getRange(
+        return try await getRangeNative(
             beginKey: beginKeyBytes, endKey: endKeyBytes, limit: limit, snapshot: snapshot
         )
     }
@@ -519,7 +519,7 @@ func getRangeBytes() async throws {
     let readTransaction = try database.createTransaction()
     let beginKey: FDB.Bytes = [UInt8]("test_byte_range_001".utf8)
     let endKey: FDB.Bytes = [UInt8]("test_byte_range_003".utf8)
-    let result = try await readTransaction.getRange(beginKey: beginKey, endKey: endKey)
+    let result = try await readTransaction.getRangeNative(beginKey: beginKey, endKey: endKey, limit: 0, snapshot: false)
 
     #expect(!result.more)
     try #require(
@@ -555,8 +555,8 @@ func getRangeWithLimit() async throws {
 
     // Test with limit
     let readTransaction = try database.createTransaction()
-    let result = try await readTransaction.getRange(
-        beginKey: "test_limit_key_001", endKey: "test_limit_key_999", limit: 3
+    let result = try await readTransaction.getRangeNative(
+        beginKey: "test_limit_key_001", endKey: "test_limit_key_999", limit: 3, snapshot: false
     )
     #expect(result.records.count == 3, "Should return exactly 3 key-value pairs due to limit")
 
@@ -589,7 +589,7 @@ func getRangeEmpty() async throws {
 
     let newTransaction = try database.createTransaction()
     // Test empty range
-    let result = try await newTransaction.getRange(
+    let result = try await newTransaction.getRangeNative(
         beginKey: "test_empty_start", endKey: "test_empty_end"
     )
 
@@ -598,8 +598,8 @@ func getRangeEmpty() async throws {
     #expect(result.more == false, "Should indicate no more results")
 }
 
-@Test("getRange with KeySelectors - firstGreaterOrEqual")
-func getRangeWithKeySelectors() async throws {
+@Test("getRangeNative with KeySelectors - firstGreaterOrEqual")
+func getRangeNativeWithKeySelectors() async throws {
     try await FDBClient.maybeInitialize()
     let database = try FDBClient.openDatabase()
     let transaction = try database.createTransaction()
@@ -626,7 +626,7 @@ func getRangeWithKeySelectors() async throws {
     let readTransaction = try database.createTransaction()
     let beginSelector = FDB.KeySelector.firstGreaterOrEqual(key1)
     let endSelector = FDB.KeySelector.firstGreaterOrEqual(key3)
-    let result = try await readTransaction.getRange(
+    let result = try await readTransaction.getRangeNative(
         beginSelector: beginSelector, endSelector: endSelector
     )
 
@@ -664,7 +664,7 @@ func getRangeWithStringSelectorKeys() async throws {
     let readTransaction = try database.createTransaction()
     let beginSelector = FDB.KeySelector.firstGreaterOrEqual("test_str_selector_001")
     let endSelector = FDB.KeySelector.firstGreaterOrEqual("test_str_selector_003")
-    let result = try await readTransaction.getRange(
+    let result = try await readTransaction.getRangeNative(
         beginSelector: beginSelector, endSelector: endSelector
     )
 
@@ -700,8 +700,8 @@ func getRangeWithSelectable() async throws {
     // Test using the general Selectable protocol with mixed key types
     let readTransaction = try database.createTransaction()
     let beginKey: FDB.Bytes = [UInt8]("test_mixed_001".utf8)
-    let endString = "test_mixed_003"
-    let result = try await readTransaction.getRange(begin: beginKey, end: endString)
+    let endKey = [UInt8]("test_mixed_003".utf8)
+    let result = try await readTransaction.getRangeNative(beginKey: beginKey, endKey: endKey, limit: 0, snapshot: false)
 
     #expect(!result.more)
     try #require(result.records.count == 2, "Should return 2 key-value pairs")
@@ -735,10 +735,10 @@ func keySelectorMethods() async throws {
     let beginSelectorGT = FDB.KeySelector.firstGreaterThan("test_offset_002")
     let endSelector = FDB.KeySelector.firstGreaterOrEqual("test_offset_999")
 
-    let resultGTE = try await readTransaction.getRange(
+    let resultGTE = try await readTransaction.getRangeNative(
         beginSelector: beginSelectorGTE, endSelector: endSelector
     )
-    let resultGT = try await readTransaction.getRange(
+    let resultGT = try await readTransaction.getRangeNative(
         beginSelector: beginSelectorGT, endSelector: endSelector
     )
 
@@ -1355,8 +1355,8 @@ func transactionOptionConvenienceMethods() throws {
     #expect(validationPassed, "Transaction option convenience methods have valid signatures")
 }
 
-@Test("readRange with KeySelectors - basic functionality")
-func readRangeWithKeySelectors() async throws {
+@Test("getRange with KeySelectors - basic functionality")
+func getRangeWithKeySelectors() async throws {
     try await FDBClient.maybeInitialize()
     let database = try FDBClient.openDatabase()
     let transaction = try database.createTransaction()
@@ -1374,12 +1374,12 @@ func readRangeWithKeySelectors() async throws {
     }
     _ = try await newTransaction.commit()
 
-    // Test readRange method with limited results to trigger pre-fetching
+    // Test getRange method with limited results to trigger pre-fetching
     let readTransaction = try database.createTransaction()
     let beginSelector = FDB.KeySelector.firstGreaterOrEqual("test_read_range_015")
     let endSelector = FDB.KeySelector.firstGreaterOrEqual("test_read_range_032")
 
-    let asyncSequence = readTransaction.readRange(
+    let asyncSequence = readTransaction.getRange(
         beginSelector: beginSelector, endSelector: endSelector
     )
 
@@ -1405,8 +1405,8 @@ func readRangeWithKeySelectors() async throws {
     #expect(count == 17, "Should read expected number of records in range")
 }
 
-@Test("readRange with AsyncIterator - comprehensive pre-fetching test")
-func readRangeAsyncIteratorPrefetch() async throws {
+@Test("getRange with AsyncIterator - comprehensive pre-fetching test")
+func getRangeAsyncIteratorPrefetch() async throws {
     try await FDBClient.maybeInitialize()
     let database = try FDBClient.openDatabase()
     let transaction = try database.createTransaction()
@@ -1429,7 +1429,7 @@ func readRangeAsyncIteratorPrefetch() async throws {
     let beginSelector = FDB.KeySelector.firstGreaterOrEqual("test_async_iter_020")
     let endSelector = FDB.KeySelector.firstGreaterOrEqual("test_async_iter_080")
 
-    let asyncSequence = readTransaction.readRange(
+    let asyncSequence = readTransaction.getRange(
         beginSelector: beginSelector, endSelector: endSelector
     )
 

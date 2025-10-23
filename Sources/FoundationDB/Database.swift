@@ -53,7 +53,7 @@ public final class FDBDatabase: DatabaseProtocol {
     ///
     /// - Returns: A new transaction instance conforming to `TransactionProtocol`.
     /// - Throws: `FDBError` if the transaction cannot be created.
-    public func createTransaction() throws -> any TransactionProtocol {
+    public func createTransaction() throws -> FDBTransaction {
         var transaction: OpaquePointer?
         let error = fdb_database_create_transaction(database, &transaction)
         if error != 0 {

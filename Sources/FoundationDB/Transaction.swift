@@ -158,7 +158,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
     }
 
     public func onError(_ error: FDBError) async throws {
-        try await Future<ResultVoid>(
+        _ = try await Future<ResultVoid>(
             fdb_transaction_on_error(transaction, error.code)
         ).getAsync()
     }
@@ -230,7 +230,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
         }
     }
 
-    public func getRange(
+    func getRangeNative(
         beginSelector: FDB.KeySelector, endSelector: FDB.KeySelector, limit: Int = 0,
         snapshot: Bool
     ) async throws -> ResultRange {
@@ -261,7 +261,8 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
         return try await future.getAsync() ?? ResultRange(records: [], more: false)
     }
 
-    public func getRange(
+
+    func getRangeNative(
         beginKey: FDB.Bytes, endKey: FDB.Bytes, limit: Int = 0, snapshot: Bool
     ) async throws -> ResultRange {
         let future = beginKey.withUnsafeBytes { beginKeyBytes in

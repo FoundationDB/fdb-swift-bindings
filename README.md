@@ -36,7 +36,7 @@ try await database.withTransaction { transaction in
 
 ```swift
 // Efficient streaming over large result sets
-let sequence = transaction.readRange(
+let sequence = transaction.getRange(
     beginSelector: .firstGreaterOrEqual("user:"),
     endSelector: .firstGreaterOrEqual("user;")
 )
