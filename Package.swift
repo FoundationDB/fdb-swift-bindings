@@ -31,7 +31,12 @@ let package = Package(
     ],
     targets: [
         .systemLibrary(
-            name: "CFoundationDB"
+            name: "CFoundationDB",
+            pkgConfig: "libfdb",
+            providers: [
+                .apt(["foundationdb-clients"]),
+                .yum(["foundationdb-clients"]),
+            ]
         ),
         .target(
             name: "FoundationDB",
