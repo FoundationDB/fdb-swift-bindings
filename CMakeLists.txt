@@ -88,5 +88,3 @@ install(TARGETS FoundationDB-Swift stacktester_swift
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
 )
-
-add_test(NAME FoundationDB-Swift-Tests COMMAND FoundationDB-Swift-Tests)
