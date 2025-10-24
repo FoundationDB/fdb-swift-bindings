@@ -230,9 +230,9 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
         }
     }
 
-    func getRangeNative(
+    public func getRangeNative(
         beginSelector: FDB.KeySelector, endSelector: FDB.KeySelector, limit: Int = 0,
-        snapshot: Bool
+        snapshot: Bool = false
     ) async throws -> ResultRange {
         let future = beginSelector.key.withUnsafeBytes { beginKeyBytes in
             endSelector.key.withUnsafeBytes { endKeyBytes in
@@ -262,8 +262,8 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
     }
 
 
-    func getRangeNative(
-        beginKey: FDB.Bytes, endKey: FDB.Bytes, limit: Int = 0, snapshot: Bool
+    public func getRangeNative(
+        beginKey: FDB.Bytes, endKey: FDB.Bytes, limit: Int = 0, snapshot: Bool = false
     ) async throws -> ResultRange {
         let future = beginKey.withUnsafeBytes { beginKeyBytes in
             endKey.withUnsafeBytes { endKeyBytes in

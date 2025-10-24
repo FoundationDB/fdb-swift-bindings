@@ -24,7 +24,7 @@
 /// and transaction retry logic. Implementations handle the underlying database
 /// connection and resource management.
 /// Database interface for FoundationDB operations
-protocol DatabaseProtocol {
+public protocol DatabaseProtocol {
     associatedtype Transaction: TransactionProtocol
 
     /// Creates a new transaction for database operations.
@@ -52,7 +52,7 @@ protocol DatabaseProtocol {
 /// a FoundationDB transaction, including reads, writes, atomic operations,
 /// and transaction management.
 /// Transaction interface for FoundationDB operations
-protocol TransactionProtocol: Sendable {
+public protocol TransactionProtocol: Sendable {
     /// Retrieves a value for the given key.
     ///
     /// - Parameters:
