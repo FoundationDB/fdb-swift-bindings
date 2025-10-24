@@ -20,15 +20,17 @@ let database = try FDBClient.openDatabase()
 // Simple key-value operations
 try await database.withTransaction { transaction in
     // Set a value
-    transaction.setValue("world", for: "hello")
-    
+    let key = "hello"
+    let value = "world"
+    transaction.setValue([UInt8](value.utf8), for: [UInt8](key.utf8))
+
     // Get a value
-    if let value = try await transaction.getValue(for: "hello") {
-        print(String(bytes: value)) // "world"
+    if let valueBytes = try await transaction.getValue(for: [UInt8](key.utf8)) {
+        print(String(decoding: valueBytes, as: UTF8.self)) // "world"
     }
-    
+
     // Delete a key
-    transaction.clear(key: "hello")
+    transaction.clear(key: [UInt8](key.utf8))
 }
 ```
 
@@ -37,13 +39,13 @@ try await database.withTransaction { transaction in
 ```swift
 // Efficient streaming over large result sets
 let sequence = transaction.getRange(
-    beginSelector: .firstGreaterOrEqual("user:"),
-    endSelector: .firstGreaterOrEqual("user;")
+    beginSelector: .firstGreaterOrEqual([UInt8]("user:".utf8)),
+    endSelector: .firstGreaterOrEqual([UInt8]("user;".utf8))
 )
 
 for try await (key, value) in sequence {
-    let userId = String(bytes: key)
-    let userData = String(bytes: value)
+    let userId = String(decoding: key, as: UTF8.self)
+    let userData = String(decoding: value, as: UTF8.self)
     // Process each key-value pair as it streams
 }
 ```
@@ -55,7 +57,7 @@ try await database.withTransaction { transaction in
     // Atomic increment
     let counterKey = "counter"
     let increment = withUnsafeBytes(of: Int64(1).littleEndian) { Array($0) }
-    transaction.atomicOp(key: counterKey, param: increment, mutationType: .add)
+    transaction.atomicOp(key: [UInt8](counterKey.utf8), param: increment, mutationType: .add)
 }
 ```
 
