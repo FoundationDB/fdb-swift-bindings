@@ -64,7 +64,7 @@ Task {
 while true {
     let isFinished = syncQueue.sync { finished }
     if isFinished { break }
-    RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1))
+    let _ = RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1))
 }
 
 let error = syncQueue.sync { finalError }
