@@ -70,7 +70,7 @@ public protocol TupleElement: Sendable, Hashable, Equatable {
 /// These semantic differences ensure consistency with FoundationDB's tuple ordering and are
 /// important when using tuples as dictionary keys or in sets.
 public struct Tuple: Sendable, Hashable, Equatable {
-    private let elements: [any TupleElement]
+    internal let elements: [any TupleElement]
 
     public init(_ elements: any TupleElement...) {
         self.elements = elements
