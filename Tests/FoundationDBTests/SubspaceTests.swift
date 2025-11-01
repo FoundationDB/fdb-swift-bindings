@@ -122,7 +122,10 @@ struct SubspaceTests {
         let subspace = Subspace(rootPrefix: "test_special_chars")
         let (begin, end) = subspace.range()
 
-        #expect(begin == subspace.prefix)
+        // begin should be prefix + [0x00]
+        #expect(begin == subspace.prefix + [0x00])
+        // end should be prefix + [0xFF]
+        #expect(end == subspace.prefix + [0xFF])
         #expect(end != begin)
         #expect(end.count > 0)
     }

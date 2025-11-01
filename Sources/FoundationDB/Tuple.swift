@@ -134,6 +134,9 @@ public struct Tuple: Sendable, Hashable, Equatable {
             case TupleTypeCode.nested.rawValue:
                 let element = try Tuple.decodeTuple(from: bytes, at: &offset)
                 elements.append(element)
+            case TupleTypeCode.versionstamp.rawValue:
+                let element = try Versionstamp.decodeTuple(from: bytes, at: &offset)
+                elements.append(element)
             default:
                 throw TupleError.invalidDecoding("Unknown type code: \(typeCode)")
             }

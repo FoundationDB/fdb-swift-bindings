@@ -167,7 +167,10 @@ struct VersionstampTests {
         #expect(packed.count > 13 + 4)
 
         // Last 4 bytes should be the offset
-        let offsetBytes = packed.suffix(4)
+        #expect(packed.count >= 4, "Packed data must have at least 4 bytes for offset")
+        let offsetBytes = Array(packed.suffix(4))
+        #expect(offsetBytes.count == 4, "Offset must be exactly 4 bytes")
+
         let offset = offsetBytes.withUnsafeBytes { $0.load(as: UInt32.self).littleEndian }
 
         // Offset should point to the start of the 10-byte transaction version
@@ -188,7 +191,10 @@ struct VersionstampTests {
         #expect(Array(packed.prefix(3)) == prefix)
 
         // Last 4 bytes should be the offset
-        let offsetBytes = packed.suffix(4)
+        #expect(packed.count >= 4, "Packed data must have at least 4 bytes for offset")
+        let offsetBytes = Array(packed.suffix(4))
+        #expect(offsetBytes.count == 4, "Offset must be exactly 4 bytes")
+
         let offset = offsetBytes.withUnsafeBytes { $0.load(as: UInt32.self).littleEndian }
 
         // Offset should account for prefix length
@@ -275,6 +281,105 @@ struct VersionstampTests {
         } catch {
             #expect(error is TupleError)
         }
+    }
+
+    // MARK: - Roundtrip Tests (Encode → Decode)
+
+    @Test("Versionstamp roundtrip with complete versionstamp")
+    func testVersionstampRoundtripComplete() throws {
+        let original = Versionstamp(
+            transactionVersion: [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A],
+            userVersion: 42
+        )
+        let tuple = Tuple("prefix", original, "suffix")
+
+        // Encode
+        let encoded = tuple.encode()
+
+        // Decode through Tuple.decode()
+        let decoded = try Tuple.decode(from: encoded)
+
+        #expect(decoded.count == 3)
+        #expect((decoded[0] as? String) == "prefix")
+        #expect((decoded[1] as? Versionstamp) == original)
+        #expect((decoded[2] as? String) == "suffix")
+    }
+
+    @Test("Versionstamp roundtrip with incomplete versionstamp")
+    func testVersionstampRoundtripIncomplete() throws {
+        let original = Versionstamp.incomplete(userVersion: 123)
+        let tuple = Tuple(original)
+
+        // Encode
+        let encoded = tuple.encode()
+
+        // Decode
+        let decoded = try Tuple.decode(from: encoded)
+
+        #expect(decoded.count == 1)
+        let decodedVS = decoded[0] as? Versionstamp
+        #expect(decodedVS == original)
+        #expect(decodedVS?.isComplete == false)
+        #expect(decodedVS?.userVersion == 123)
+    }
+
+    @Test("Versionstamp roundtrip mixed tuple")
+    func testVersionstampRoundtripMixed() throws {
+        let vs = Versionstamp(
+            transactionVersion: [0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88, 0x77, 0x66],
+            userVersion: 999
+        )
+        let tuple = Tuple(
+            "string",
+            Int64(12345),
+            vs,
+            true,
+            [UInt8]([0x01, 0x02, 0x03])
+        )
+
+        let encoded = tuple.encode()
+        let decoded = try Tuple.decode(from: encoded)
+
+        #expect(decoded.count == 5)
+        #expect((decoded[0] as? String) == "string")
+        #expect((decoded[1] as? Int64) == 12345)
+        #expect((decoded[2] as? Versionstamp) == vs)
+        #expect((decoded[3] as? Bool) == true)
+        #expect((decoded[4] as? FDB.Bytes) == [0x01, 0x02, 0x03])
+    }
+
+    @Test("Decode versionstamp with insufficient bytes throws error")
+    func testDecodeVersionstampInsufficientBytes() {
+        let encoded: FDB.Bytes = [
+            TupleTypeCode.versionstamp.rawValue,
+            0x01, 0x02, 0x03  // Need 12 bytes but only 3
+        ]
+
+        do {
+            _ = try Tuple.decode(from: encoded)
+            Issue.record("Should throw error for insufficient bytes")
+        } catch {
+            // Expected - should throw TupleError.invalidEncoding
+            #expect(error is TupleError)
+        }
+    }
+
+    @Test("Multiple versionstamps roundtrip")
+    func testMultipleVersionstampsRoundtrip() throws {
+        let vs1 = Versionstamp.incomplete(userVersion: 1)
+        let vs2 = Versionstamp(
+            transactionVersion: [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A],
+            userVersion: 2
+        )
+        let tuple = Tuple(vs1, "middle", vs2)
+
+        let encoded = tuple.encode()
+        let decoded = try Tuple.decode(from: encoded)
+
+        #expect(decoded.count == 3)
+        #expect((decoded[0] as? Versionstamp) == vs1)
+        #expect((decoded[1] as? String) == "middle")
+        #expect((decoded[2] as? Versionstamp) == vs2)
     }
 
     // MARK: - Integration Test Structure

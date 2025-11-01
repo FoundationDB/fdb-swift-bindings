@@ -27,9 +27,8 @@ extension Tuple {
     /// This method packs a tuple that contains exactly one incomplete versionstamp,
     /// and appends the byte offset where the versionstamp appears.
     ///
-    /// The offset size depends on API version:
-    /// - API < 520: 2 bytes (uint16, little-endian)
-    /// - API >= 520: 4 bytes (uint32, little-endian)
+    /// The offset is always 4 bytes (uint32, little-endian) as per API version 520+.
+    /// API versions prior to 520 used 2-byte offsets but are no longer supported.
     ///
     /// The resulting key can be used with `SET_VERSIONSTAMPED_KEY` atomic operation.
     /// At commit time, FoundationDB will replace the 10-byte placeholder with the
@@ -81,27 +80,16 @@ extension Tuple {
         }
 
         // Append offset based on API version
-        // Default to API 520+ behavior (4-byte offset)
-        let apiVersion = 520  // TODO: Get from FDBClient.apiVersion when available
+        // Currently defaults to API 520+ behavior (4-byte offset)
+        // API < 520 used 2-byte offset, but is no longer supported
 
-        if apiVersion < 520 {
-            // API < 520: Use 2-byte offset (uint16, little-endian)
-            guard position <= UInt16.max else {
-                throw TupleError.invalidEncoding
-            }
-
-            let offset = UInt16(position)
-            packed.append(contentsOf: withUnsafeBytes(of: offset.littleEndian) { Array($0) })
-
-        } else {
-            // API >= 520: Use 4-byte offset (uint32, little-endian)
-            guard position <= UInt32.max else {
-                throw TupleError.invalidEncoding
-            }
-
-            let offset = UInt32(position)
-            packed.append(contentsOf: withUnsafeBytes(of: offset.littleEndian) { Array($0) })
+        // API >= 520: Use 4-byte offset (uint32, little-endian)
+        guard position <= UInt32.max else {
+            throw TupleError.invalidEncoding
         }
+
+        let offset = UInt32(position)
+        packed.append(contentsOf: withUnsafeBytes(of: offset.littleEndian) { Array($0) })
 
         return packed
     }
