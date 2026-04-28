@@ -25,6 +25,9 @@ let package = Package(
     name: "FoundationDB",
     platforms: [
         .macOS(.v15),
+        .iOS(.v18),
+        .tvOS(.v16),
+        .watchOS(.v9)
     ],
     products: [
         .library(name: "FoundationDB", targets: ["FoundationDB"]),

@@ -260,6 +260,36 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
 
         return try await future.getAsync() ?? ResultRange(records: [], more: false)
     }
+    
+    public func getRangeNative(
+        beginSelector: FDB.KeySelector, endSelector: FDB.KeySelector, limit: Int = 0, streamingMode: Int32, snapshot: Bool = false
+    ) async throws -> ResultRange {
+        let future = beginSelector.key.withUnsafeBytes { beginKeyBytes in
+            endSelector.key.withUnsafeBytes { endKeyBytes in
+                Future<ResultRange>(
+                    fdb_transaction_get_range(
+                        transaction,
+                        beginKeyBytes.bindMemory(to: UInt8.self).baseAddress,
+                        Int32(beginSelector.key.count),
+                        beginSelector.orEqual ? 1 : 0,
+                        Int32(beginSelector.offset),
+                        endKeyBytes.bindMemory(to: UInt8.self).baseAddress,
+                        Int32(endSelector.key.count),
+                        endSelector.orEqual ? 1 : 0,
+                        Int32(endSelector.offset),
+                        Int32(limit),
+                        0, // target_bytes = 0 (no limit)
+                        FDBStreamingMode(streamingMode),
+                        1, // iteration = 1
+                        snapshot ? 1 : 0,
+                        0 // reverse = false
+                    )
+                )
+            }
+        }
+
+        return try await future.getAsync() ?? ResultRange(records: [], more: false)
+    }
 
 
     public func getRangeNative(

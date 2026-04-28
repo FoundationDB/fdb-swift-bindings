@@ -17,6 +17,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+ 
 import CFoundationDB
 
 /// The main client interface for FoundationDB operations.
@@ -34,6 +35,7 @@ import CFoundationDB
 /// let database = try FDBClient.openDatabase()
 /// ```
 // TODO: Remove hard-coded error codes.
+
 public final class FDBClient: Sendable {
     /// FoundationDB API version constants.
     public static let defaultApiVersion: Int = 710
