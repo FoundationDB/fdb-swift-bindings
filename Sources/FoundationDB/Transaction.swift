@@ -19,7 +19,12 @@
  */
 import CFoundationDB
 
-public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
+public final class FDBTransaction: TransactionProtocol, Equatable, @unchecked Sendable {
+
+    public static func ==(lhs: FDBTransaction, rhs: FDBTransaction) -> Bool {
+        lhs.transaction == rhs.transaction
+    }
+    
     private let transaction: OpaquePointer
 
     init(transaction: OpaquePointer) {
