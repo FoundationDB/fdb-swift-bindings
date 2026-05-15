@@ -61,6 +61,18 @@ public final class FDBTransaction: TransactionProtocol, Equatable, @unchecked Se
             }
         }
     }
+    
+    public func setValue(from value: UnsafeRawPointer,at offset: Int,length: Int,for key: FDB.Bytes) {
+        key.withUnsafeBytes { keyBytes in
+            fdb_transaction_set(
+                    transaction,
+                    keyBytes.bindMemory(to: UInt8.self).baseAddress,
+                    Int32(key.count),
+                    value + offset,
+                    Int32(length)
+                )
+            }
+        }
 
     public func clear(key: FDB.Bytes) {
         key.withUnsafeBytes { keyBytes in
