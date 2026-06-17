@@ -5,6 +5,6 @@ libdir=${exec_prefix}/lib
 
 Name: CFoundationDB
 Description: The foundationdb C library
-Version: 5.0.5
-Cflags: -I${includedir}/foundationdb
+Version: 7.3.77
+Cflags: -I${includedir}
 Libs: -L${libdir} -lfdb_c
