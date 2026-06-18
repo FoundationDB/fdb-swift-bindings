@@ -113,7 +113,7 @@ class StackMachine {
             }
         }
         let tuple = Tuple(kvs)
-        store(idx, tuple.encode())
+        store(idx, tuple.pack())
     }
 
     // Helper method to filter key results with prefix
@@ -134,7 +134,7 @@ class StackMachine {
                 // Create key: prefix + tuple(stackIndex, entry.idx)
                 let keyTuple = Tuple([Int64(stackIndex), Int64(entry.idx)])
                 var key = prefix
-                key.append(contentsOf: keyTuple.encode())
+                key.append(contentsOf: keyTuple.pack())
 
                 // Pack value as a tuple (matching Python/Go behavior)
                 let valueTuple: Tuple
@@ -148,7 +148,7 @@ class StackMachine {
                     valueTuple = Tuple([Array("UNKNOWN_ITEM".utf8)])
                 }
 
-                var packedValue = valueTuple.encode()
+                var packedValue = valueTuple.pack()
 
                 // Limit value size to 40000 bytes
                 let maxSize = 40000
@@ -529,7 +529,7 @@ class StackMachine {
             }
 
             let tuple = Tuple(elements.reversed()) // Reverse because we popped in reverse order
-            store(idx, tuple.encode())
+            store(idx, tuple.pack())
 
         case "TUPLE_PACK_WITH_VERSIONSTAMP":
             // Python order: prefix, count, items
@@ -554,13 +554,13 @@ class StackMachine {
             // For now, treat like regular TUPLE_PACK since versionstamp handling is complex
             let tuple = Tuple(elements.reversed())
             var result = prefix
-            result.append(contentsOf: tuple.encode())
+            result.append(contentsOf: tuple.pack())
             store(idx, result)
 
         case "TUPLE_UNPACK":
             let encodedTuple = waitAndPop().item as! [UInt8]
             do {
-                let elements = try Tuple.decode(from: encodedTuple)
+                let elements = try Tuple.unpack(from: encodedTuple)
                 for element in elements.reversed() { // Reverse to match stack order
                     if let bytes = element as? [UInt8] {
                         store(idx, bytes)
@@ -606,7 +606,7 @@ class StackMachine {
             }
 
             let tuple = Tuple(elements.reversed())
-            let prefix = tuple.encode()
+            let prefix = tuple.pack()
 
             // Create range: prefix to prefix + [0xFF]
             var endKey = prefix
@@ -677,7 +677,7 @@ class StackMachine {
         let instructions = try await database.withTransaction { transaction -> [(key: [UInt8], value: [UInt8])] in
             // Create range starting with our prefix
             let prefixTuple = Tuple([prefix])
-            let beginKey = prefixTuple.encode()
+            let beginKey = prefixTuple.pack()
             let endKey = beginKey + [0xFF] // Simple range end
 
             let result = try await transaction.getRangeNative(
@@ -697,7 +697,7 @@ class StackMachine {
         // Process each instruction
         for (i, (_, value)) in instructions.enumerated() {
             // Unpack the instruction tuple from the value
-            let elements = try Tuple.decode(from: value)
+            let elements = try Tuple.unpack(from: value)
 
             // Convert tuple elements to array for processing
             var instruction: [Any] = []

@@ -70,7 +70,7 @@ public protocol TupleElement: Sendable, Hashable, Equatable {
 /// These semantic differences ensure consistency with FoundationDB's tuple ordering and are
 /// important when using tuples as dictionary keys or in sets.
 public struct Tuple: Sendable, Hashable, Equatable {
-    private let elements: [any TupleElement]
+    internal let elements: [any TupleElement]
 
     public init(_ elements: any TupleElement...) {
         self.elements = elements
@@ -89,7 +89,13 @@ public struct Tuple: Sendable, Hashable, Equatable {
         return elements.count
     }
 
-    public func encode() -> FDB.Bytes {
+    /// Pack tuple elements into a byte array
+    ///
+    /// Encodes all tuple elements into a single byte array using the FoundationDB
+    /// tuple encoding format, which preserves lexicographic ordering.
+    ///
+    /// - Returns: Packed byte representation of the tuple
+    public func pack() -> FDB.Bytes {
         var result = FDB.Bytes()
         for element in elements {
             result.append(contentsOf: element.encodeTuple())
@@ -97,45 +103,71 @@ public struct Tuple: Sendable, Hashable, Equatable {
         return result
     }
 
-    public static func decode(from bytes: FDB.Bytes) throws -> [any TupleElement] {
+    /// Unpack tuple elements from a byte array
+    ///
+    /// Decodes a byte array into tuple elements using the FoundationDB
+    /// tuple encoding format.
+    ///
+    /// - Parameter bytes: Packed byte representation
+    /// - Returns: Array of decoded tuple elements
+    /// - Throws: `TupleError.invalidDecoding` if bytes cannot be decoded
+    public static func unpack(from bytes: FDB.Bytes) throws -> [any TupleElement] {
         var elements: [any TupleElement] = []
         var offset = 0
 
         while offset < bytes.count {
-            let typeCode = bytes[offset]
+            let rawTypeCode = bytes[offset]
             offset += 1
 
-            switch typeCode {
-            case TupleTypeCode.null.rawValue:
-                elements.append(TupleNil())
-            case TupleTypeCode.bytes.rawValue:
-                let element = try FDB.Bytes.decodeTuple(from: bytes, at: &offset)
-                elements.append(element)
-            case TupleTypeCode.string.rawValue:
-                let element = try String.decodeTuple(from: bytes, at: &offset)
-                elements.append(element)
-            case TupleTypeCode.boolFalse.rawValue, TupleTypeCode.boolTrue.rawValue:
-                let element = try Bool.decodeTuple(from: bytes, at: &offset)
-                elements.append(element)
-            case TupleTypeCode.float.rawValue:
-                let element = try Float.decodeTuple(from: bytes, at: &offset)
-                elements.append(element)
-            case TupleTypeCode.double.rawValue:
-                let element = try Double.decodeTuple(from: bytes, at: &offset)
-                elements.append(element)
-            case TupleTypeCode.uuid.rawValue:
-                let element = try UUID.decodeTuple(from: bytes, at: &offset)
-                elements.append(element)
-            case TupleTypeCode.intZero.rawValue:
+            // Handle intZero separately
+            if rawTypeCode == TupleTypeCode.intZero.rawValue {
                 elements.append(0)
-            case TupleTypeCode.negativeIntStart.rawValue ... TupleTypeCode.positiveIntEnd.rawValue:
+                continue
+            }
+
+            // Handle integer range separately since it spans multiple raw values
+            // Note: Int64.decodeTuple reads bytes[offset-1] to get the type code,
+            // so offset should already be pointing to the byte after the type code
+            if rawTypeCode >= TupleTypeCode.negativeIntStart.rawValue && rawTypeCode <= TupleTypeCode.positiveIntEnd.rawValue {
                 let element = try Int64.decodeTuple(from: bytes, at: &offset)
                 elements.append(element)
-            case TupleTypeCode.nested.rawValue:
+                continue
+            }
+
+            guard let typeCode = TupleTypeCode(rawValue: rawTypeCode) else {
+                throw TupleError.invalidDecoding("Unknown type code: \(rawTypeCode)")
+            }
+
+            switch typeCode {
+            case .null:
+                elements.append(TupleNil())
+            case .bytes:
+                let element = try FDB.Bytes.decodeTuple(from: bytes, at: &offset)
+                elements.append(element)
+            case .string:
+                let element = try String.decodeTuple(from: bytes, at: &offset)
+                elements.append(element)
+            case .boolFalse, .boolTrue:
+                let element = try Bool.decodeTuple(from: bytes, at: &offset)
+                elements.append(element)
+            case .float:
+                let element = try Float.decodeTuple(from: bytes, at: &offset)
+                elements.append(element)
+            case .double:
+                let element = try Double.decodeTuple(from: bytes, at: &offset)
+                elements.append(element)
+            case .uuid:
+                let element = try UUID.decodeTuple(from: bytes, at: &offset)
+                elements.append(element)
+            case .nested:
                 let element = try Tuple.decodeTuple(from: bytes, at: &offset)
                 elements.append(element)
-            default:
-                throw TupleError.invalidDecoding("Unknown type code: \(typeCode)")
+            case .versionstamp:
+                let element = try Versionstamp.decodeTuple(from: bytes, at: &offset)
+                elements.append(element)
+            case .intZero, .negativeIntStart, .positiveIntEnd:
+                // Already handled above
+                throw TupleError.invalidDecoding("Unexpected type code: \(typeCode)")
             }
         }
 
@@ -505,7 +537,7 @@ extension Tuple: TupleElement {
             }
         }
 
-        let nestedElements = try Tuple.decode(from: nestedBytes)
+        let nestedElements = try Tuple.unpack(from: nestedBytes)
         return Tuple(nestedElements)
     }
 }
