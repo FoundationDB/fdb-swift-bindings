@@ -100,7 +100,7 @@ class StackMachine {
 
     // Helper method to pack range results like Python's push_range
     func pushRange(_ idx: Int, _ records: [(key: [UInt8], value: [UInt8])], prefixFilter: [UInt8]? = nil) {
-        var kvs: [any TupleElement] = []
+        var kvs: [any TupleElementConvertible] = []
         for (key, value) in records {
             if let prefix = prefixFilter {
                 if key.starts(with: prefix) {
@@ -511,7 +511,7 @@ class StackMachine {
 
         case "TUPLE_PACK":
             let numElements = waitAndPop().item as! Int64
-            var elements: [any TupleElement] = []
+            var elements: [any TupleElementConvertible] = []
 
             for _ in 0 ..< numElements {
                 let item = waitAndPop().item
@@ -535,7 +535,7 @@ class StackMachine {
             // Python order: prefix, count, items
             let prefix = waitAndPop().item as! [UInt8]
             let numElements = waitAndPop().item as! Int64
-            var elements: [any TupleElement] = []
+            var elements: [any TupleElementConvertible] = []
 
             for _ in 0 ..< numElements {
                 let item = waitAndPop().item
@@ -560,15 +560,16 @@ class StackMachine {
         case "TUPLE_UNPACK":
             let encodedTuple = waitAndPop().item as! [UInt8]
             do {
-                let elements = try Tuple.decode(from: encodedTuple)
-                for element in elements.reversed() { // Reverse to match stack order
-                    if let bytes = element as? [UInt8] {
+                let tuple = try Tuple.decode(from: encodedTuple)
+                for element in tuple.elements.reversed() { // Reverse to match stack order
+                    switch element {
+                    case let .bytes(bytes):
                         store(idx, bytes)
-                    } else if let string = element as? String {
+                    case let .string(string):
                         store(idx, Array(string.utf8))
-                    } else if let int = element as? Int64 {
+                    case let .int(int):
                         store(idx, int)
-                    } else {
+                    default:
                         store(idx, Array("UNKNOWN_TYPE".utf8))
                     }
                 }
@@ -592,7 +593,7 @@ class StackMachine {
 
         case "TUPLE_RANGE":
             let numElements = waitAndPop().item as! Int64
-            var elements: [any TupleElement] = []
+            var elements: [any TupleElementConvertible] = []
 
             for _ in 0 ..< numElements {
                 let item = waitAndPop().item
@@ -697,18 +698,19 @@ class StackMachine {
         // Process each instruction
         for (i, (_, value)) in instructions.enumerated() {
             // Unpack the instruction tuple from the value
-            let elements = try Tuple.decode(from: value)
+            let tuple = try Tuple.decode(from: value)
 
             // Convert tuple elements to array for processing
             var instruction: [Any] = []
-            for element in elements {
-                if let stringElement = element as? String {
+            for element in tuple.elements {
+                switch element {
+                case let .string(stringElement):
                     instruction.append(stringElement)
-                } else if let bytesElement = element as? [UInt8] {
+                case let .bytes(bytesElement):
                     instruction.append(bytesElement)
-                } else if let intElement = element as? Int64 {
+                case let .int(intElement):
                     instruction.append(intElement)
-                } else {
+                default:
                     instruction.append(element)
                 }
             }
