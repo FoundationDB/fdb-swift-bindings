@@ -18,8 +18,13 @@
  * limitations under the License.
  */
 
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
+
+let swiftSettings: [SwiftSetting] = [
+    // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+]
 
 let package = Package(
     name: "FoundationDB",
@@ -40,16 +45,19 @@ let package = Package(
         ),
         .target(
             name: "FoundationDB",
-            dependencies: ["CFoundationDB"]
+            dependencies: ["CFoundationDB"],
+            swiftSettings: swiftSettings
         ),
         .testTarget(
             name: "FoundationDBTests",
-            dependencies: ["FoundationDB"]
+            dependencies: ["FoundationDB"],
+            swiftSettings: swiftSettings
         ),
         .executableTarget(
             name: "StackTester",
             dependencies: ["FoundationDB"],
-            path: "Tests/StackTester/Sources/StackTester"
+            path: "Tests/StackTester/Sources/StackTester",
+            swiftSettings: swiftSettings
         ),
     ]
 )

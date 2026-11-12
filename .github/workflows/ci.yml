@@ -14,7 +14,7 @@ jobs:
         fdb-version:
           - "7.3.43"
         swift-version:
-          - "6.1"
+          - "6.2"
 
     name: FDB/Swift Bindings - ${{ matrix.fdb-version }} (Swift ${{ matrix.swift-version }})
 

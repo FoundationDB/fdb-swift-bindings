@@ -19,22 +19,19 @@
  */
 import CFoundationDB
 
-public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
-    private let transaction: OpaquePointer
+public final class FDBTransaction: TransactionProtocol, Sendable {
+    /// The underlying transaction pointer.
+    private let transaction: SendablePointer
 
     init(transaction: OpaquePointer) {
-        self.transaction = transaction
-    }
-
-    deinit {
-        fdb_transaction_destroy(transaction)
+        self.transaction = SendablePointer(pointer: transaction, destructor: fdb_transaction_destroy)
     }
 
     public func getValue(for key: FDB.Bytes, snapshot: Bool) async throws -> FDB.Bytes? {
         try await key.withUnsafeBytes { keyBytes in
             Future<ResultValue>(
                 fdb_transaction_get(
-                    transaction,
+                    transaction.pointer,
                     keyBytes.bindMemory(to: UInt8.self).baseAddress,
                     Int32(key.count),
                     snapshot ? 1 : 0
@@ -47,7 +44,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
         key.withUnsafeBytes { keyBytes in
             value.withUnsafeBytes { valueBytes in
                 fdb_transaction_set(
-                    transaction,
+                    transaction.pointer,
                     keyBytes.bindMemory(to: UInt8.self).baseAddress,
                     Int32(key.count),
                     valueBytes.bindMemory(to: UInt8.self).baseAddress,
@@ -60,7 +57,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
     public func clear(key: FDB.Bytes) {
         key.withUnsafeBytes { keyBytes in
             fdb_transaction_clear(
-                transaction,
+                transaction.pointer,
                 keyBytes.bindMemory(to: UInt8.self).baseAddress,
                 Int32(key.count)
             )
@@ -71,7 +68,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
         beginKey.withUnsafeBytes { beginKeyBytes in
             endKey.withUnsafeBytes { endKeyBytes in
                 fdb_transaction_clear_range(
-                    transaction,
+                    transaction.pointer,
                     beginKeyBytes.bindMemory(to: UInt8.self).baseAddress,
                     Int32(beginKey.count),
                     endKeyBytes.bindMemory(to: UInt8.self).baseAddress,
@@ -85,7 +82,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
         key.withUnsafeBytes { keyBytes in
             param.withUnsafeBytes { paramBytes in
                 fdb_transaction_atomic_op(
-                    transaction,
+                    transaction.pointer,
                     keyBytes.bindMemory(to: UInt8.self).baseAddress,
                     Int32(key.count),
                     paramBytes.bindMemory(to: UInt8.self).baseAddress,
@@ -101,14 +98,14 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
         if let value = value {
             error = value.withUnsafeBytes { bytes in
                 fdb_transaction_set_option(
-                    transaction,
+                    transaction.pointer,
                     FDBTransactionOption(option.rawValue),
                     bytes.bindMemory(to: UInt8.self).baseAddress,
                     Int32(value.count)
                 )
             }
         } else {
-            error = fdb_transaction_set_option(transaction, FDBTransactionOption(option.rawValue), nil, 0)
+            error = fdb_transaction_set_option(transaction.pointer, FDBTransactionOption(option.rawValue), nil, 0)
         }
 
         if error != 0 {
@@ -120,7 +117,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
         try await selector.key.withUnsafeBytes { keyBytes in
             Future<ResultKey>(
                 fdb_transaction_get_key(
-                    transaction,
+                    transaction.pointer,
                     keyBytes.bindMemory(to: UInt8.self).baseAddress,
                     Int32(selector.key.count),
                     selector.orEqual ? 1 : 0,
@@ -133,33 +130,33 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
 
     public func commit() async throws -> Bool {
         try await Future<ResultVoid>(
-            fdb_transaction_commit(transaction)
+            fdb_transaction_commit(transaction.pointer)
         ).getAsync() != nil
     }
 
     public func cancel() {
-        fdb_transaction_cancel(transaction)
+        fdb_transaction_cancel(transaction.pointer)
     }
 
     public func getVersionstamp() async throws -> FDB.Bytes? {
         try await Future<ResultKey>(
-            fdb_transaction_get_versionstamp(transaction)
+            fdb_transaction_get_versionstamp(transaction.pointer)
         ).getAsync()?.value
     }
 
     public func setReadVersion(_ version: FDB.Version) {
-        fdb_transaction_set_read_version(transaction, version)
+        fdb_transaction_set_read_version(transaction.pointer, version)
     }
 
     public func getReadVersion() async throws -> FDB.Version {
         try await Future<ResultVersion>(
-            fdb_transaction_get_read_version(transaction)
+            fdb_transaction_get_read_version(transaction.pointer)
         ).getAsync()?.value ?? 0
     }
 
     public func onError(_ error: FDBError) async throws {
         _ = try await Future<ResultVoid>(
-            fdb_transaction_on_error(transaction, error.code)
+            fdb_transaction_on_error(transaction.pointer, error.code)
         ).getAsync()
     }
 
@@ -168,7 +165,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
             endKey.withUnsafeBytes { endKeyBytes in
                 Future<ResultInt64>(
                     fdb_transaction_get_estimated_range_size_bytes(
-                        transaction,
+                        transaction.pointer,
                         beginKeyBytes.bindMemory(to: UInt8.self).baseAddress,
                         Int32(beginKey.count),
                         endKeyBytes.bindMemory(to: UInt8.self).baseAddress,
@@ -184,7 +181,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
             endKey.withUnsafeBytes { endKeyBytes in
                 Future<ResultKeyArray>(
                     fdb_transaction_get_range_split_points(
-                        transaction,
+                        transaction.pointer,
                         beginKeyBytes.bindMemory(to: UInt8.self).baseAddress,
                         Int32(beginKey.count),
                         endKeyBytes.bindMemory(to: UInt8.self).baseAddress,
@@ -198,7 +195,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
 
     public func getCommittedVersion() throws -> FDB.Version {
         var version: FDB.Version = 0
-        let err = fdb_transaction_get_committed_version(transaction, &version)
+        let err = fdb_transaction_get_committed_version(transaction.pointer, &version)
         if err != 0 {
             throw FDBError(code: err)
         }
@@ -207,7 +204,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
 
     public func getApproximateSize() async throws -> Int {
         try Int(await Future<ResultInt64>(
-            fdb_transaction_get_approximate_size(transaction)
+            fdb_transaction_get_approximate_size(transaction.pointer)
         ).getAsync()?.value ?? 0)
     }
 
@@ -215,7 +212,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
         let error = beginKey.withUnsafeBytes { beginKeyBytes in
             endKey.withUnsafeBytes { endKeyBytes in
                 fdb_transaction_add_conflict_range(
-                    transaction,
+                    transaction.pointer,
                     beginKeyBytes.bindMemory(to: UInt8.self).baseAddress,
                     Int32(beginKey.count),
                     endKeyBytes.bindMemory(to: UInt8.self).baseAddress,
@@ -238,7 +235,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
             endSelector.key.withUnsafeBytes { endKeyBytes in
                 Future<ResultRange>(
                     fdb_transaction_get_range(
-                        transaction,
+                        transaction.pointer,
                         beginKeyBytes.bindMemory(to: UInt8.self).baseAddress,
                         Int32(beginSelector.key.count),
                         beginSelector.orEqual ? 1 : 0,
@@ -269,7 +266,7 @@ public final class FDBTransaction: TransactionProtocol, @unchecked Sendable {
             endKey.withUnsafeBytes { endKeyBytes in
                 Future<ResultRange>(
                     fdb_transaction_get_range(
-                        transaction,
+                        transaction.pointer,
                         beginKeyBytes.bindMemory(to: UInt8.self).baseAddress,
                         Int32(beginKey.count),
                         1, // begin_or_equal = true

@@ -1385,7 +1385,7 @@ struct FoundationDBTests {
         }
         _ = try await newTransaction.commit()
 
-        // Test getRange method with limited results to trigger pre-fetching
+        // Test getRange method with limited results to trigger multiple batches
         let readTransaction = try database.createTransaction()
         let beginSelector = FDB.KeySelector.firstGreaterOrEqual("test_read_range_015")
         let endSelector = FDB.KeySelector.firstGreaterOrEqual("test_read_range_032")
@@ -1416,8 +1416,8 @@ struct FoundationDBTests {
         #expect(count == 17, "Should read expected number of records in range")
     }
 
-    @Test("getRange with AsyncIterator - comprehensive pre-fetching test")
-    func getRangeAsyncIteratorPrefetch() async throws {
+    @Test("getRange with AsyncIterator - multiple batches")
+    func getRangeAsyncIteratorMultipleBatches() async throws {
         try await FDBClient.maybeInitialize()
         let database = try FDBClient.openDatabase()
         let transaction = try database.createTransaction()
@@ -1426,7 +1426,7 @@ struct FoundationDBTests {
         transaction.clearRange(beginKey: "test_async_", endKey: "test_async`")
         _ = try await transaction.commit()
 
-        // Set up test data - more records to test pre-fetching
+        // Set up test data - enough records to span multiple batches
         let writeTransaction = try database.createTransaction()
         for i in 0 ... 149 {
             let key = "test_async_iter_" + String(i).leftPad(toLength: 3, withPad: "0")
@@ -1435,7 +1435,7 @@ struct FoundationDBTests {
         }
         _ = try await writeTransaction.commit()
 
-        // Test with small limit to force multiple batches and pre-fetching
+        // Test with small limit to force multiple batches
         let readTransaction = try database.createTransaction()
         let beginSelector = FDB.KeySelector.firstGreaterOrEqual("test_async_iter_020")
         let endSelector = FDB.KeySelector.firstGreaterOrEqual("test_async_iter_080")
@@ -1705,5 +1705,89 @@ struct FoundationDBTests {
         // Test that conflict range type enum has expected values
         #expect(FDB.ConflictRangeType.read.rawValue == 0, "read should have value 0")
         #expect(FDB.ConflictRangeType.write.rawValue == 1, "write should have value 1")
+    }
+
+    @Test("breaking out of getRange early does not race with commit")
+    func getRangeEarlyExitThenCommit() async throws {
+        try await FDBClient.maybeInitialize()
+        let database = try FDBClient.openDatabase()
+
+        let setup = try database.createTransaction()
+        for i in 0 ..< 300 {
+            setup.setValue("v\(i)", for: "test_early_exit_" + String.padded(i))
+        }
+        _ = try await setup.commit()
+
+        // Leave the loop after the first element and immediately commit the same transaction. No read
+        // may still be in flight at that point, or FDB fails the commit with `used_during_commit`.
+        // Repeated to widen any race window.
+        for _ in 0 ..< 50 {
+            let transaction = try database.createTransaction()
+            let sequence = transaction.getRange(
+                beginKey: Array("test_early_exit_".utf8), endKey: Array("test_early_exit`".utf8)
+            )
+            for try await _ in sequence {
+                break
+            }
+            transaction.setValue("x", for: "test_early_exit_written")
+            _ = try await transaction.commit()
+        }
+    }
+
+    @Test("cancelling a task cancels the pending FDB read")
+    func cancellingTaskCancelsRead() async throws {
+        try await FDBClient.maybeInitialize()
+        let database = try FDBClient.openDatabase()
+
+        for _ in 0 ..< 20 {
+            let transaction = try database.createTransaction()
+            let task = Task { try await transaction.getValue(for: "test_cancel_key") }
+            task.cancel()
+            do {
+                _ = try await task.value
+            } catch is CancellationError {
+                // Expected: the C future was cancelled along with the task.
+            }
+        }
+    }
+
+    private final class NonSendableBox {
+        var value = 0
+    }
+
+    private actor TransactionUser {
+        var attempts = 0
+
+        // Mutates actor-isolated state inside the closure and returns a non-Sendable value. Neither
+        // compiles unless `withTransaction` inherits the caller's isolation and returns `sending`.
+        func run<Database: DatabaseProtocol>(on database: Database) async throws -> sending NonSendableBox {
+            try await database.withTransaction { transaction in
+                attempts += 1
+                let box = NonSendableBox()
+                box.value = attempts
+                return box
+            }
+        }
+    }
+
+    @Test("withTransaction inherits actor isolation and supports non-Sendable results")
+    func withTransactionActorIsolation() async throws {
+        try await FDBClient.maybeInitialize()
+        let database = try FDBClient.openDatabase()
+
+        let user = TransactionUser()
+        let box = try await user.run(on: database)
+        #expect(box.value == 1)
+        #expect(await user.attempts == 1)
+
+        // DatabaseProtocol is Sendable, so it can be used from concurrent child tasks.
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0 ..< 4 {
+                group.addTask {
+                    try await database.withTransaction { _ in () }
+                }
+            }
+            try await group.waitForAll()
+        }
     }
 }
