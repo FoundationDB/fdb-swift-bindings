@@ -250,8 +250,8 @@ func tupleNested() throws {
     let innerTuple = Tuple("hello", 42, true)
     let outerTuple = Tuple("outer", innerTuple, "end")
 
-    let encoded = outerTuple.encode()
-    let decoded = try Tuple.decode(from: encoded)
+    let encoded = outerTuple.pack()
+    let decoded = try Tuple.unpack(from: encoded)
 
     #expect(decoded.count == 3, "Should have 3 elements")
 
@@ -270,8 +270,8 @@ func tupleNested() throws {
 func tupleWithZero() throws {
     let tuple = Tuple("hello", 0, "foo")
 
-    let encoded = tuple.encode()
-    let decoded = try Tuple.decode(from: encoded)
+    let encoded = tuple.pack()
+    let decoded = try Tuple.unpack(from: encoded)
 
     #expect(decoded.count == 3, "Should have 3 elements")
     let decodedString1 = decoded[0] as? String
@@ -290,8 +290,8 @@ func tupleNestedDeep() throws {
     let level2 = Tuple("middle", level3)
     let level1 = Tuple("top", level2, "bottom")
 
-    let encoded = level1.encode()
-    let decoded = try Tuple.decode(from: encoded)
+    let encoded = level1.pack()
+    let decoded = try Tuple.unpack(from: encoded)
 
     #expect(decoded.count == 3, "Top level should have 3 elements")
 
