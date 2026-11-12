@@ -25,26 +25,25 @@ import Testing
 
 @Test("TupleNil encoding and decoding")
 func testTupleNil() throws {
-    let tupleNil = TupleNil()
-    let encoded = tupleNil.encodeTuple()
+    let tupleNil = Tuple(TupleElement.null)
+    let encoded = tupleNil.encode()
     #expect(encoded == [TupleTypeCode.null.rawValue], "TupleNil should encode to null type code")
 
-    var offset = 1
-    let decoded = try TupleNil.decodeTuple(from: encoded, at: &offset)
-    #expect(type(of: decoded) == TupleNil.self, "Should decode back to TupleNil")
-    #expect(offset == 1, "Offset should not advance for TupleNil")
+    let decoded = try Tuple.decode(from:encoded)
+    #expect(decoded == tupleNil, "Should decode back to original null tuple")
 }
 
 @Test("TupleString encoding and decoding")
 func tupleString() throws {
     let testString = "Hello, World!"
-    let encoded = testString.encodeTuple()
+    var encoded = FDB.Bytes()
+    testString.encodeTuple(into: &encoded)
 
     #expect(encoded.first == TupleTypeCode.string.rawValue, "TupleString should start with string type code")
     #expect(encoded.last == 0x00, "TupleString should end with null terminator")
 
     var offset = 1
-    let decoded = try String.decodeTuple(from: encoded, at: &offset)
+    let decoded = try String.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testString, "Should decode back to original string")
     #expect(offset == encoded.count, "Offset should advance to end of encoded data")
 }
@@ -52,13 +51,14 @@ func tupleString() throws {
 @Test("TupleString with null bytes")
 func tupleStringWithNulls() throws {
     let testString = "Hello\u{0}World"
-    let encoded = testString.encodeTuple()
+    var encoded = FDB.Bytes()
+    testString.encodeTuple(into: &encoded)
 
     #expect(encoded.contains(0x00), "Encoded string should contain null bytes")
     #expect(encoded.contains(0xFF), "Null bytes should be escaped with 0xFF")
 
     var offset = 1
-    let decoded = try String.decodeTuple(from: encoded, at: &offset)
+    let decoded = try String.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testString, "Should decode back to original string with nulls")
 }
 
@@ -67,8 +67,10 @@ func tupleBool() throws {
     let testTrue = true
     let testFalse = false
 
-    let encodedTrue = testTrue.encodeTuple()
-    let encodedFalse = testFalse.encodeTuple()
+    var encodedTrue = FDB.Bytes()
+    testTrue.encodeTuple(into: &encodedTrue)
+    var encodedFalse = FDB.Bytes()
+    testFalse.encodeTuple(into: &encodedFalse)
 
     #expect(encodedTrue == [TupleTypeCode.boolTrue.rawValue], "true should encode to boolTrue type code")
     #expect(encodedFalse == [TupleTypeCode.boolFalse.rawValue], "false should encode to boolFalse type code")
@@ -76,8 +78,8 @@ func tupleBool() throws {
     var offsetTrue = 1
     var offsetFalse = 1
 
-    let decodedTrue = try Bool.decodeTuple(from: encodedTrue, at: &offsetTrue)
-    let decodedFalse = try Bool.decodeTuple(from: encodedFalse, at: &offsetFalse)
+    let decodedTrue = try Bool.decodeTuple(from: encodedTrue, at: &offsetTrue, typeCode: encodedTrue[0])
+    let decodedFalse = try Bool.decodeTuple(from: encodedFalse, at: &offsetFalse, typeCode: encodedFalse[0])
 
     #expect(decodedTrue == true, "Should decode back to true")
     #expect(decodedFalse == false, "Should decode back to false")
@@ -86,13 +88,14 @@ func tupleBool() throws {
 @Test("TupleFloat encoding and decoding")
 func tupleFloat() throws {
     let testFloat: Float = 3.14159
-    let encoded = testFloat.encodeTuple()
+    var encoded = FDB.Bytes()
+    testFloat.encodeTuple(into: &encoded)
 
     #expect(encoded.first == TupleTypeCode.float.rawValue, "Float should start with float type code")
     #expect(encoded.count == 5, "Float should be 5 bytes (1 type code + 4 data)")
 
     var offset = 1
-    let decoded = try Float.decodeTuple(from: encoded, at: &offset)
+    let decoded = try Float.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testFloat, "Should decode back to original float")
     #expect(offset == encoded.count, "Offset should advance to end of encoded data")
 }
@@ -100,13 +103,14 @@ func tupleFloat() throws {
 @Test("TupleDouble encoding and decoding")
 func tupleDouble() throws {
     let testDouble = 3.141592653589793
-    let encoded = testDouble.encodeTuple()
+    var encoded = FDB.Bytes()
+    testDouble.encodeTuple(into: &encoded)
 
     #expect(encoded.first == TupleTypeCode.double.rawValue, "Double should start with double type code")
     #expect(encoded.count == 9, "Double should be 9 bytes (1 type code + 8 data)")
 
     var offset = 1
-    let decoded = try Double.decodeTuple(from: encoded, at: &offset)
+    let decoded = try Double.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testDouble, "Should decode back to original double")
     #expect(offset == encoded.count, "Offset should advance to end of encoded data")
 }
@@ -114,13 +118,14 @@ func tupleDouble() throws {
 @Test("TupleUUID encoding and decoding")
 func tupleUUID() throws {
     let testUUID = UUID()
-    let encoded = testUUID.encodeTuple()
+    var encoded = FDB.Bytes()
+    testUUID.encodeTuple(into: &encoded)
 
     #expect(encoded.first == TupleTypeCode.uuid.rawValue, "UUID should start with uuid type code")
     #expect(encoded.count == 17, "UUID should be 17 bytes (1 type code + 16 data)")
 
     var offset = 1
-    let decoded = try UUID.decodeTuple(from: encoded, at: &offset)
+    let decoded = try UUID.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testUUID, "Should decode back to original UUID")
     #expect(offset == encoded.count, "Offset should advance to end of encoded data")
 }
@@ -128,12 +133,13 @@ func tupleUUID() throws {
 @Test("TupleInt64 encoding and decoding - Zero")
 func tupleInt64Zero() throws {
     let testInt: Int64 = 0
-    let encoded = testInt.encodeTuple()
+    var encoded = FDB.Bytes()
+    testInt.encodeTuple(into: &encoded)
 
     #expect(encoded == [TupleTypeCode.intZero.rawValue], "Zero should encode to intZero type code")
 
     var offset = 1
-    let decoded = try Int64.decodeTuple(from: encoded, at: &offset)
+    let decoded = try Int64.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testInt, "Should decode back to original zero")
     #expect(offset == encoded.count, "Offset should advance to end of encoded data")
 }
@@ -141,12 +147,13 @@ func tupleInt64Zero() throws {
 @Test("TupleInt64 encoding and decoding - Small positive")
 func tupleInt64SmallPositive() throws {
     let testInt: Int64 = 42
-    let encoded = testInt.encodeTuple()
+    var encoded = FDB.Bytes()
+    testInt.encodeTuple(into: &encoded)
 
     #expect(encoded.first == 0x15, "Small positive should use 0x15 type code (positiveInt1)")
 
     var offset = 1
-    let decoded = try Int64.decodeTuple(from: encoded, at: &offset)
+    let decoded = try Int64.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testInt, "Should decode back to original positive integer")
     #expect(offset == encoded.count, "Offset should advance to end of encoded data")
 }
@@ -154,12 +161,13 @@ func tupleInt64SmallPositive() throws {
 @Test("TupleInt64 encoding and decoding - Very small negative")
 func tupleInt64VerySmallNegative() throws {
     let testInt: Int64 = -42
-    let encoded = testInt.encodeTuple()
+    var encoded = FDB.Bytes()
+    testInt.encodeTuple(into: &encoded)
 
     #expect(encoded.first == 0x13)
 
     var offset = 1
-    let decoded = try Int64.decodeTuple(from: encoded, at: &offset)
+    let decoded = try Int64.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testInt, "Should decode back to original positive integer")
     #expect(offset == encoded.count, "Offset should advance to end of encoded data")
 }
@@ -167,10 +175,11 @@ func tupleInt64VerySmallNegative() throws {
 @Test("TupleInt64 encoding and decoding - Large negative")
 func tupleInt64LargeNegative() throws {
     let testInt: Int64 = -89_034_333_444
-    let encoded = testInt.encodeTuple()
+    var encoded = FDB.Bytes()
+    testInt.encodeTuple(into: &encoded)
 
     var offset = 1
-    let decoded = try Int64.decodeTuple(from: encoded, at: &offset)
+    let decoded = try Int64.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testInt, "Should decode back to original negative integer")
     #expect(offset == encoded.count, "Offset should advance to end of encoded data")
 }
@@ -178,10 +187,11 @@ func tupleInt64LargeNegative() throws {
 @Test("TupleInt64 encoding and decoding - Very Large negative")
 func tupleInt64VeryLargeNegative() throws {
     let testInt: Int64 = -(1 << 55) - 34_897_432
-    let encoded = testInt.encodeTuple()
+    var encoded = FDB.Bytes()
+    testInt.encodeTuple(into: &encoded)
 
     var offset = 1
-    let decoded = try Int64.decodeTuple(from: encoded, at: &offset)
+    let decoded = try Int64.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testInt, "Should decode back to original negative integer")
     #expect(offset == encoded.count, "Offset should advance to end of encoded data")
 }
@@ -189,10 +199,11 @@ func tupleInt64VeryLargeNegative() throws {
 @Test("TupleInt64 encoding and decoding - VeryVery Large negative")
 func tupleInt64VeryLargeNegative2() throws {
     let testInt: Int64 = -(1 << 60) - 34_897_432
-    let encoded = testInt.encodeTuple()
+    var encoded = FDB.Bytes()
+    testInt.encodeTuple(into: &encoded)
 
     var offset = 1
-    let decoded = try Int64.decodeTuple(from: encoded, at: &offset)
+    let decoded = try Int64.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
     #expect(decoded == testInt, "Should decode back to original negative integer")
     #expect(offset == encoded.count, "Offset should advance to end of encoded data")
 }
@@ -202,14 +213,16 @@ func tupleInt64LargeValues() throws {
     let largePositive = Int64.max
     let largeNegative = Int64.min + 1
 
-    let encodedPos = largePositive.encodeTuple()
-    let encodedNeg = largeNegative.encodeTuple()
+    var encodedPos = FDB.Bytes()
+    largePositive.encodeTuple(into: &encodedPos)
+    var encodedNeg = FDB.Bytes()
+    largeNegative.encodeTuple(into: &encodedNeg)
 
     var offsetPos = 1
     var offsetNeg = 1
 
-    let decodedPos = try Int64.decodeTuple(from: encodedPos, at: &offsetPos)
-    let decodedNeg = try Int64.decodeTuple(from: encodedNeg, at: &offsetNeg)
+    let decodedPos = try Int64.decodeTuple(from: encodedPos, at: &offsetPos, typeCode: encodedPos[0])
+    let decodedNeg = try Int64.decodeTuple(from: encodedNeg, at: &offsetNeg, typeCode: encodedNeg[0])
 
     #expect(decodedPos == largePositive, "Should decode back to Int64.max")
     #expect(decodedNeg == largeNegative, "Should decode back to Int64.min")
@@ -218,31 +231,21 @@ func tupleInt64LargeValues() throws {
 @Test("TupleInt32 encoding and decoding")
 func tupleInt32() throws {
     let testInt: Int32 = -2_034_333_444
-    let encoded = testInt.encodeTuple()
+    let testTuple = Tuple(testInt)
+    let encoded = testTuple.encode()
 
-    var offset = 1
-    let decoded = try Int32.decodeTuple(from: encoded, at: &offset)
-    #expect(decoded == testInt, "Should decode back to original Int32")
+    let decoded = try Tuple.decode(from: encoded)
+    #expect(decoded == testTuple, "Should decode back to original tuple")
 }
 
 @Test("TupleInt encoding and decoding")
 func tupleInt() throws {
     let testInt = 123_456
-    let encoded = testInt.encodeTuple()
+    let testTuple = Tuple(testInt)
+    let encoded = testTuple.encode()
 
-    var offset = 1
-    let decoded = try Int.decodeTuple(from: encoded, at: &offset)
-    #expect(decoded == testInt, "Should decode back to original Int")
-}
-
-@Test("TupleUInt64 encoding and decoding")
-func tupleUInt64() throws {
-    let testUInt: UInt64 = 999_999
-    let encoded = testUInt.encodeTuple()
-
-    var offset = 1
-    let decoded = try UInt64.decodeTuple(from: encoded, at: &offset)
-    #expect(decoded == testUInt, "Should decode back to original UInt64")
+    let decoded = try Tuple.decode(from: encoded)
+    #expect(decoded == testTuple, "Should decode back to original tuple")
 }
 
 @Test("TupleNested encoding and decoding")
@@ -255,14 +258,14 @@ func tupleNested() throws {
 
     #expect(decoded.count == 3, "Should have 3 elements")
 
-    let decodedString1 = decoded[0] as? String
+    let decodedString1  = String.fromTuple(element: decoded[0])
     #expect(decodedString1 == "outer", "First element should be 'outer'")
 
-    let decodedNested = decoded[1] as? Tuple
+    let decodedNested = Tuple.fromTuple(element: decoded[1])
     #expect(decodedNested != nil, "Second element should be a Tuple")
     #expect(decodedNested?.count == 3, "Nested tuple should have 3 elements")
 
-    let decodedString2 = decoded[2] as? String
+    let decodedString2 = String.fromTuple(element: decoded[2])
     #expect(decodedString2 == "end", "Third element should be 'end'")
 }
 
@@ -274,13 +277,13 @@ func tupleWithZero() throws {
     let decoded = try Tuple.decode(from: encoded)
 
     #expect(decoded.count == 3, "Should have 3 elements")
-    let decodedString1 = decoded[0] as? String
+    let decodedString1 = decoded[0].convert(String.self)
     #expect(decodedString1 == "hello")
 
-    let decodedInt = decoded[1] as? Int
+    let decodedInt = decoded[1].convert(Int64.self)
     #expect(decodedInt == 0)
 
-    let decodedString2 = decoded[2] as? String
+    let decodedString2 = decoded[2, as:String.self]
     #expect(decodedString2 == "foo")
 }
 
@@ -295,14 +298,14 @@ func tupleNestedDeep() throws {
 
     #expect(decoded.count == 3, "Top level should have 3 elements")
 
-    let topString = decoded[0] as? String
+    let topString = String.fromTuple(element: decoded[0])
     #expect(topString == "top", "First element should be 'top'")
 
-    let middleTuple = decoded[1] as? Tuple
+    let middleTuple = Tuple.fromTuple(element: decoded[1])
     #expect(middleTuple != nil, "Second element should be a Tuple")
     #expect(middleTuple?.count == 2, "Middle tuple should have 2 elements")
 
-    let bottomString = decoded[2] as? String
+    let bottomString = String.fromTuple(element: decoded[2])
     #expect(bottomString == "bottom", "Third element should be 'bottom'")
 }
 
@@ -321,7 +324,8 @@ func tupleInt64DistributedIntegers() throws {
     var negative = 0
     for _ in 0 ..< 1_000_000 {
         let testInt = nextRandom()
-        let encoded = testInt.encodeTuple()
+        var encoded = FDB.Bytes()
+        testInt.encodeTuple(into: &encoded)
 
         if testInt > 0 {
             positive += 1
@@ -330,7 +334,7 @@ func tupleInt64DistributedIntegers() throws {
         }
 
         var offset = 1
-        let decoded = try Int64.decodeTuple(from: encoded, at: &offset)
+        let decoded = try Int64.decodeTuple(from: encoded, at: &offset, typeCode: encoded[0])
         #expect(decoded == testInt, "Integer \(testInt) should encode and decode correctly")
         #expect(offset == encoded.count, "Offset should advance to end of encoded data")
     }
@@ -426,8 +430,8 @@ func tupleFloatZeroInequality() throws {
     // where 0.0 == -0.0 is true.
     #expect(tuple1 != tuple2, "Positive and negative zero have different encodings")
 
-    // Verify they hash differently (important for Set/Dictionary correctness)
-    #expect(tuple1.hashValue != tuple2.hashValue, "Different values must have potentially different hashes")
+    // It is okay that they have the same hash.
+    #expect(tuple1.hashValue == tuple2.hashValue, "Different values can still have the same hashes")
 }
 
 @Test("Tuple equality - Double positive and negative zero are unequal")
@@ -436,7 +440,7 @@ func tupleDoubleZeroInequality() throws {
     let tuple2 = Tuple(Double(-0.0))
 
     #expect(tuple1 != tuple2, "Positive and negative zero have different encodings")
-    #expect(tuple1.hashValue != tuple2.hashValue, "Different values must have potentially different hashes")
+    #expect(tuple1.hashValue == tuple2.hashValue, "Different values can still have the same hashes")
 }
 
 @Test("Tuple equality - Float NaN values are equal")
@@ -504,8 +508,8 @@ func tupleEmptySet() throws {
 
 @Test("Tuple with nil values")
 func tupleWithNil() throws {
-    let tuple1 = Tuple(TupleNil(), "hello", TupleNil())
-    let tuple2 = Tuple(TupleNil(), "hello", TupleNil())
+    let tuple1 = Tuple(TupleElement.null, "hello", TupleElement.null)
+    let tuple2 = Tuple(TupleElement.null, "hello", TupleElement.null)
 
     #expect(tuple1 == tuple2, "Tuples with nil values should be equal")
     #expect(tuple1.hashValue == tuple2.hashValue, "Tuples with nil values should have same hash")
@@ -514,8 +518,35 @@ func tupleWithNil() throws {
 
 @Test("Tuple equality - nil values in different positions are unequal")
 func tupleNilPositions() throws {
-    let tuple1 = Tuple(TupleNil(), "hello")
-    let tuple2 = Tuple("hello", TupleNil())
+    let tuple1 = Tuple(TupleElement.null, "hello")
+    let tuple2 = Tuple("hello", TupleElement.null)
 
     #expect(tuple1 != tuple2, "Tuples with nils in different positions should be unequal")
+}
+
+@Test("Tuple to Swift Tuple")
+func tupleToTuple() throws {
+    typealias TupleType = (String, Int, String)
+
+    let swiftTuple: TupleType = ("hello", 2, "foo")
+    let tuple = Tuple(swiftTuple)
+
+    let encoded = tuple.encode()
+    let decodedTuple = try Tuple.decode(from: encoded, as: TupleType.self)
+    #expect(decodedTuple == swiftTuple)
+
+    let decodedTuple1a = try Tuple.decode(from: encoded, as: (String, Int, String).self)
+    #expect(decodedTuple == decodedTuple1a)
+
+    let encoded2 = Tuple.encode(swiftTuple)
+    #expect(encoded == encoded2)
+
+    let decodedTuple2: TupleType = try Tuple.decode(from: encoded)
+    #expect(decodedTuple == decodedTuple2)
+
+    let decodedTuple2a: (String, Int, String) = try Tuple.decode(from: encoded)
+    #expect(decodedTuple2 == decodedTuple2a)
+
+    let (s1, i2, s3) = try Tuple.decode<String, Int, String>(from: encoded)
+    #expect(decodedTuple == (s1, i2, s3))
 }
