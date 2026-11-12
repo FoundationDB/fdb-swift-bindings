@@ -40,53 +40,69 @@ protocol FutureResult: Sendable {
 /// `Future<T>` bridges FoundationDB's callback-based C API with Swift's structured
 /// concurrency model, allowing async operations to be awaited naturally.
 ///
+/// Cancelling the awaiting task cancels the underlying C future, so the wait ends promptly
+/// instead of running to completion.
+///
 /// ## Usage Example
 /// ```swift
 /// let future = Future<ResultValue>(cFuturePtr)
 /// let result = try await future.getAsync()
 /// ```
-class Future<T: FutureResult> {
+final class Future<T: FutureResult>: Sendable {
     /// The underlying C future pointer.
-    private let cFuture: CFuturePtr
+    private let cFuture: SendablePointer
 
     /// Initializes a new Future with the given C future pointer.
     ///
-    /// - Parameter cFuture: The C future pointer to wrap.
+    /// - Parameter cFuture: The C future pointer to wrap. The `Future` takes ownership.
     init(_ cFuture: CFuturePtr) {
-        self.cFuture = cFuture
-    }
-
-    /// Cleans up the C future when the instance is deallocated.
-    deinit {
-        fdb_future_destroy(cFuture)
+        self.cFuture = SendablePointer(pointer: cFuture, destructor: fdb_future_destroy)
     }
 
     /// Asynchronously waits for the future to complete and returns the result.
     ///
-    /// This method bridges FoundationDB's callback-based API with Swift's async/await,
-    /// allowing the caller to await the result of the underlying C future.
+    /// This method bridges FoundationDB's callback-based API with Swift's async/await.
+    /// If the calling task is cancelled, the C future is cancelled and this method
+    /// throws `CancellationError`.
     ///
     /// - Returns: The result value extracted from the future, or nil if no value is present.
-    /// - Throws: `FDBError` if the future operation failed.
+    /// - Throws: `FDBError` if the future operation failed, or `CancellationError` if cancelled.
     func getAsync() async throws -> T? {
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<T?, Error>) in
-            let box = CallbackBox { [continuation] future in
-                do {
-                    let err = fdb_future_get_error(future)
-                    if err != 0 {
-                        throw FDBError(code: err)
-                    }
-
-                    let value = try T.extract(fromFuture: self.cFuture)
-                    continuation.resume(returning: value)
-                } catch {
-                    continuation.resume(throwing: error)
+        do {
+            return try await withTaskCancellationHandler {
+                try await waitUntilReady()
+                // Extraction runs here, on the caller's executor, rather than in the C
+                // callback, so large results aren't copied on FDB's single network thread.
+                let err = fdb_future_get_error(cFuture.pointer)
+                if err != 0 {
+                    throw FDBError(code: err)
                 }
+                return try T.extract(fromFuture: cFuture.pointer)
+            } onCancel: {
+                // Safe to call at any time, including before the callback is registered:
+                // the future then becomes ready with `operation_cancelled`.
+                fdb_future_cancel(cFuture.pointer)
             }
+        } catch let error as FDBError where error.code == FDBErrorCode.operationCancelled.rawValue && Task.isCancelled {
+            throw CancellationError()
+        }
+    }
 
-            let userdata = Unmanaged.passRetained(box).toOpaque() // TODO: If future is canceled, this will not cleanup?
-            fdb_future_set_callback(cFuture, fdbFutureCallback, userdata)
+    /// Suspends until the C future is ready (successfully or not).
+    private func waitUntilReady() async throws {
+        let registrationError: Int32 = await withCheckedContinuation { continuation in
+            let box = CallbackBox { continuation.resume(returning: 0) }
+            let userdata = Unmanaged.passRetained(box).toOpaque()
+            // If the future is already ready, the callback runs inline within this call.
+            let err = fdb_future_set_callback(cFuture.pointer, fdbFutureCallback, userdata)
+            if err != 0 {
+                // The callback will never fire, so balance the retain and resume ourselves.
+                Unmanaged<CallbackBox>.fromOpaque(userdata).release()
+                continuation.resume(returning: err)
+            }
+        }
+        if registrationError != 0 {
+            throw FDBError(code: registrationError)
         }
     }
 }
@@ -95,14 +111,16 @@ class Future<T: FutureResult> {
 ///
 /// This class holds onto Swift callback functions that are passed to the C API,
 /// ensuring they remain alive for the duration of the future operation.
-private final class CallbackBox {
+private final class CallbackBox: Sendable {
     /// The callback function to be invoked when the future completes.
-    let callback: (CFuturePtr) -> Void
+    ///
+    /// Invoked on an FDB-owned thread, so it must be cheap and must not block.
+    let callback: @Sendable () -> Void
 
     /// Initializes a new callback box with the given callback.
     ///
     /// - Parameter callback: The callback function to store.
-    init(callback: @escaping (CFuturePtr) -> Void) {
+    init(callback: @escaping @Sendable () -> Void) {
         self.callback = callback
     }
 }
@@ -113,12 +131,14 @@ private final class CallbackBox {
 /// It extracts the Swift callback from the userdata and invokes it.
 ///
 /// - Parameters:
-///   - future: The completed C future pointer.
+///   - future: The completed C future pointer. Unused: the callback only needs `userdata`, and the
+///     `Future` that registered it already owns the pointer. The parameter can't be removed, because
+///     `fdb_future_set_callback` requires a function of type `void (*)(FDBFuture*, void*)`.
 ///   - userdata: Opaque pointer containing the `CallbackBox` instance.
-private func fdbFutureCallback(future: CFuturePtr?, userdata: UnsafeMutableRawPointer?) {
-    guard let userdata, let future = future else { return }
+private func fdbFutureCallback(future _: CFuturePtr?, userdata: UnsafeMutableRawPointer?) {
+    guard let userdata else { return }
     let box = Unmanaged<CallbackBox>.fromOpaque(userdata).takeRetainedValue()
-    box.callback(future)
+    box.callback()
 }
 
 /// A result type for futures that return no data (void operations).

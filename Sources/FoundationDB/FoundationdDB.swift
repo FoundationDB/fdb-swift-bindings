@@ -24,7 +24,7 @@
 /// and transaction retry logic. Implementations handle the underlying database
 /// connection and resource management.
 /// Database interface for FoundationDB operations
-public protocol DatabaseProtocol {
+public protocol DatabaseProtocol: Sendable {
     associatedtype Transaction: TransactionProtocol
 
     /// Creates a new transaction for database operations.
@@ -38,12 +38,14 @@ public protocol DatabaseProtocol {
     /// This method automatically handles transaction retries for retryable errors,
     /// providing a convenient way to execute transactional operations reliably.
     ///
+    /// The operation runs on the caller's actor (if any), so it may use state isolated to that actor.
+    ///
     /// - Parameter operation: The operation to execute within the transaction context.
     /// - Returns: The result of the transaction operation.
     /// - Throws: `FDBError` if the transaction fails after all retry attempts.
-    func withTransaction<T: Sendable>(
-        _ operation: (TransactionProtocol) async throws -> T
-    ) async throws -> T
+    func withTransaction<Result>(
+        _ operation: (TransactionProtocol) async throws -> sending Result
+    ) async throws -> sending Result
 }
 
 /// Protocol defining the interface for FoundationDB transactions.
@@ -279,9 +281,9 @@ extension DatabaseProtocol {
     /// - Parameter operation: The transaction operation to execute.
     /// - Returns: The result of the successful transaction.
     /// - Throws: `FDBError` if all retry attempts fail.
-    public func withTransaction<T: Sendable>(
-        _ operation: (TransactionProtocol) async throws -> T
-    ) async throws -> T {
+    public func withTransaction<Result>(
+        _ operation: (TransactionProtocol) async throws -> sending Result
+    ) async throws -> sending Result {
         let maxRetries = 100 // TODO: Remove this.
 
         for attempt in 0 ..< maxRetries {

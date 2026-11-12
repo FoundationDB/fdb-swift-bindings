@@ -20,15 +20,15 @@
 
 /// Provides async sequence support for iterating over FoundationDB key-value ranges.
 ///
-/// This file implements efficient streaming iteration over large result sets from FoundationDB
-/// using Swift's AsyncSequence protocol with optimized background pre-fetching.
+/// This file implements streaming iteration over large result sets from FoundationDB using
+/// Swift's AsyncSequence protocol, fetching one batch at a time as the caller consumes results.
 
 extension FDB {
-    /// An asynchronous sequence that efficiently streams key-value pairs from FoundationDB.
+    /// An asynchronous sequence that streams key-value pairs from FoundationDB.
     ///
     /// `AsyncKVSequence` provides a Swift-native way to iterate over large result sets from
-    /// FoundationDB range queries without loading all data into memory at once. It implements
-    /// background pre-fetching to minimize network latency and maximize throughput.
+    /// FoundationDB range queries without loading all data into memory at once. Results are
+    /// read in batches, and each batch is only requested once the previous one has been consumed.
     ///
     /// ## Usage
     ///
@@ -48,19 +48,22 @@ extension FDB {
     /// ## Performance Characteristics
     ///
     /// - **Streaming**: Results are processed as they arrive, not buffered entirely in memory
-    /// - **Background Pre-fetching**: Next batch is fetched concurrently while processing current batch
+    /// - **On-demand batches**: At most one batch is held at a time, and no read is made until the
+    ///   caller needs more results
     /// - **Configurable Batching**: Batch size can be tuned via `batchLimit` parameter
     /// - **Snapshot Consistency**: Supports both snapshot and non-snapshot reads
     ///
     /// ## Implementation Notes
     ///
-    /// The sequence uses an optimized async iterator that:
-    /// 1. Starts pre-fetching the next batch immediately upon initialization
-    /// 2. Continues pre-fetching in background while serving current batch items
-    /// 3. Only blocks when transitioning between batches if pre-fetch isn't complete
+    /// The sequence uses an async iterator that:
+    /// 1. Reads the first batch on the first call to `next()`
+    /// 2. Serves items from the current batch without further I/O
+    /// 3. Reads the following batch only when the current one is exhausted
     ///
-    /// This design minimizes the impact of network latency on iteration performance.
-    public struct AsyncKVSequence: AsyncSequence {
+    /// Because every read happens inside a call to `next()`, no read is ever in flight once the
+    /// caller stops iterating. That means the caller can safely use the transaction afterwards,
+    /// including calling `commit()`, without a stray read racing with it.
+    public struct AsyncKVSequence: AsyncSequence, Sendable {
         public typealias Element = (Bytes, Bytes)
 
         /// The transaction used for range queries
@@ -76,8 +79,7 @@ extension FDB {
 
         /// Creates a new async iterator for this sequence.
         ///
-        /// The iterator begins background pre-fetching immediately upon creation to minimize
-        /// latency for the first `next()` call.
+        /// No read is made until the first call to `next()`.
         ///
         /// - Returns: A new `AsyncIterator` configured for this sequence
         public func makeAsyncIterator() -> AsyncIterator {
@@ -90,19 +92,20 @@ extension FDB {
             )
         }
 
-        /// High-performance async iterator with background pre-fetching.
+        /// Async iterator that reads one batch at a time.
         ///
-        /// This iterator implements an optimized batching strategy:
+        /// This iterator implements a simple batching strategy:
         ///
-        /// 1. **Immediate Pre-fetch**: Starts fetching the first batch during initialization
-        /// 2. **Background Pre-fetch**: While serving items from current batch, pre-fetches next batch
-        /// 3. **Minimal Blocking**: Only blocks when current batch is exhausted and next isn't ready
+        /// 1. **Lazy first read**: The first batch is read on the first call to `next()`
+        /// 2. **Serve from memory**: Items from the current batch are returned without any I/O
+        /// 3. **Read when needed**: The next batch is read only after the current one is exhausted
         ///
-        /// ## Performance Benefits
+        /// ## Why there is no pre-fetching
         ///
-        /// - **Overlapped I/O**: Network requests happen concurrently with data processing
-        /// - **Reduced Latency**: Pre-fetching hides network round-trip time
-        /// - **Memory Efficient**: Only keeps 1-2 batches in memory at any time
+        /// - **No stray reads**: A read started in the background could still be running when the
+        ///   caller moves on, for example to `commit()`. FDB fails both the read and the commit
+        ///   with `used_during_commit` in that case.
+        /// - **Memory Efficient**: Only one batch is kept in memory at a time
         ///
         /// ## Thread Safety
         ///
@@ -111,8 +114,8 @@ extension FDB {
         public struct AsyncIterator: AsyncIteratorProtocol {
             /// Transaction used for all range queries
             private let transaction: TransactionProtocol
-            /// Key selector for the next batch to fetch
-            private var nextBeginSelector: FDB.KeySelector
+            /// Begin key selector (remains constant)
+            private let beginSelector: FDB.KeySelector
             /// End key selector (remains constant)
             private let endSelector: FDB.KeySelector
             /// Whether to use snapshot reads
@@ -124,8 +127,8 @@ extension FDB {
             private var currentBatch: ResultRange = .init(records: [], more: true)
             /// Index of next item to return from current batch
             private var currentIndex: Int = 0
-            /// Background task pre-fetching the next batch
-            private var preFetchTask: Task<ResultRange?, Error>?
+            /// Key selector to begin the next iteration from (or nil if at the beginning or end)
+            private var nextBatchStartSelector: FDB.KeySelector?
 
             /// Returns `true` when all available data has been consumed
             private var isExhausted: Bool {
@@ -137,7 +140,7 @@ extension FDB {
                 currentIndex >= currentBatch.records.count
             }
 
-            /// Initializes the iterator and immediately starts pre-fetching the first batch.
+            /// Initializes the iterator. No read is made until `next()` is called.
             ///
             /// - Parameters:
             ///   - transaction: The transaction to use for range queries
@@ -150,25 +153,20 @@ extension FDB {
                 endSelector: FDB.KeySelector, snapshot: Bool, batchLimit: Int
             ) {
                 self.transaction = transaction
-                nextBeginSelector = beginSelector
+                self.beginSelector = beginSelector
                 self.endSelector = endSelector
                 self.batchLimit = batchLimit
                 self.snapshot = snapshot
-
-                // Start fetching immediately to minimize latency on first next() call
-                startBackgroundPreFetch()
             }
 
             /// Returns the next key-value pair in the sequence.
             ///
-            /// This method implements the core iteration logic with optimal performance:
+            /// This method implements the core iteration logic:
             ///
             /// 1. If current batch has items, return next item immediately
-            /// 2. If current batch is exhausted, wait for pre-fetched batch
-            /// 3. Continue pre-fetching next batch in background
+            /// 2. If current batch is exhausted, read the next batch and wait for it
             ///
-            /// The method only blocks on network I/O when transitioning between batches
-            /// and the next batch isn't ready yet.
+            /// The method only waits on network I/O when transitioning between batches.
             ///
             /// - Returns: The next key-value pair, or `nil` if sequence is exhausted
             /// - Throws: `FDBError` if the database operation fails
@@ -191,50 +189,46 @@ extension FDB {
                 return keyValue
             }
 
-            /// Updates the current batch with pre-fetched data and starts next pre-fetch.
+            /// Updates the current batch by fetching the next result.
             ///
             /// This method is called when the current batch is exhausted and we need to
-            /// move to the next batch. It waits for the background pre-fetch task to complete,
-            /// updates the iterator state, and starts pre-fetching the subsequent batch.
+            /// move to the next batch. Note that we will not begin to fetch the next result
+            /// until all of the results from the previous batch are consumed. This ensures
+            /// that we never read an extra page that no operation has requested.
             ///
-            /// - Throws: `FDBError` if the pre-fetch operation failed
+            /// In theory, we could begin the read of the next page as soon as the previous
+            /// page has been read, which would let the processing of results from the iterator
+            /// happen concurrently with fetching the next page. However, then the user would
+            /// be unable to reason about whether the background read had completed before
+            /// trying to do some other operation. In particular, if they attempt to call `commit()`
+            /// on the transaction, the FDB client will fail both the read _and_ the commit
+            /// with a `used_during_commit` error. If the caller is cognizant of the hazard
+            /// and cancels the background fetch, this could be avoided, but it is safer to
+            /// only read when the caller asks for more results.
+            ///
+            /// - Throws: `FDBError` if the fetch operation fails
             private mutating func updateCurrentBatch() async throws {
-                guard let nextBatch = try await preFetchTask?.value else {
-                    throw FDBError(.clientError)
-                }
+                let nextBatch = try await fetchNextBatch()
 
                 assert(currentIndex >= currentBatch.records.count)
                 currentBatch = nextBatch
                 currentIndex = 0
 
-                if !currentBatch.records.isEmpty, currentBatch.more {
+                if !currentBatch.records.isEmpty && currentBatch.more {
                     let lastKey = nextBatch.records.last!.0
-                    nextBeginSelector = FDB.KeySelector.firstGreaterThan(lastKey)
-                    startBackgroundPreFetch()
+                    nextBatchStartSelector = FDB.KeySelector.firstGreaterThan(lastKey)
                 } else {
-                    preFetchTask = nil
+                    nextBatchStartSelector = nil
                 }
             }
 
-            /// Starts background pre-fetching of the next batch.
-            ///
-            /// This method creates a background Task that performs the next range query
-            /// concurrently. The task captures all necessary values to avoid reference
-            /// cycles and ensure thread safety.
-            ///
-            /// The pre-fetch runs independently and can complete while the iterator
-            /// is serving items from the current batch, minimizing blocking time
-            /// during batch transitions.
-            private mutating func startBackgroundPreFetch() {
-                preFetchTask = Task {
-                    [transaction, nextBeginSelector, endSelector, batchLimit, snapshot] in
-                    return try await transaction.getRangeNative(
-                        beginSelector: nextBeginSelector,
-                        endSelector: endSelector,
-                        limit: batchLimit,
-                        snapshot: snapshot
-                    )
-                }
+            private func fetchNextBatch() async throws -> ResultRange {
+                return try await transaction.getRangeNative(
+                    beginSelector: nextBatchStartSelector ?? beginSelector,
+                    endSelector: endSelector,
+                    limit: batchLimit,
+                    snapshot: snapshot
+                )
             }
         }
     }
