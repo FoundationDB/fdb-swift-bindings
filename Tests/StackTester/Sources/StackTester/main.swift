@@ -22,12 +22,15 @@ import Foundation
 import FoundationDB
 
 // Entry point - using RunLoop to keep the process alive
+// Line-buffer stdout so output is not lost if the process is killed (e.g. on timeout).
+setvbuf(stdout, nil, _IOLBF, 0)
+
 guard CommandLine.arguments.count >= 3 else {
     print("Usage: stacktester <prefix> <api_version> [cluster_file]")
     exit(1)
 }
 
-let prefix = Array(CommandLine.arguments[1].utf8)
+let prefix = toBytes(CommandLine.arguments[1])
 let apiVersionString = CommandLine.arguments[2]
 let clusterFile = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : nil
 
@@ -45,7 +48,7 @@ Task {
     do {
         try await FDBClient.initialize(version: apiVersion)
         let database = try FDBClient.openDatabase(clusterFilePath: clusterFile)
-        let stackMachine = StackMachine(prefix: prefix, database: database, verbose: false)
+        let stackMachine = StackMachine(prefix: prefix, database: database, verbose: ProcessInfo.processInfo.environment["STACKTESTER_VERBOSE"] != nil)
         try await stackMachine.run()
         print("StackMachine completed successfully")
 
@@ -69,9 +72,14 @@ while true {
 
 let error = syncQueue.sync { finalError }
 
+// Use _exit rather than exit: the database is torn down on the network thread as it is released, and
+// running C++ static destructors via exit() at the same time can crash libfdb_c.
+// See: https://github.com/FoundationDB/fdb-swift-bindings/issues/32
 if let error = error {
     print("Final error: \(error)")
-    exit(1)
+    fflush(stdout)
+    _exit(1)
 }
 
-exit(0)
+fflush(stdout)
+_exit(0)

@@ -53,7 +53,7 @@ jobs:
       # Defaults live here (and only here): `inputs` is empty on scheduled runs, so the
       # fallbacks are needed, and input `default:`s would just duplicate them.
       FDB_VERSION: ${{ inputs.fdb-version || '8.0.0' }}
-      SWIFT_VERSION: "6.1"
+      SWIFT_VERSION: "6.2"
       TIME_LIMIT_MINUTES: ${{ inputs.time-limit-minutes || '60' }}
       MAX_FAILURES: ${{ inputs.max-failures || '5' }}
       START_SEED: ${{ inputs.seed || '' }}
