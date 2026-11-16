@@ -8,7 +8,8 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pinned to 24.04 for now because of https://github.com/swift-actions/setup-swift/issues/805
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         fdb-version:
@@ -22,29 +23,15 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install FoundationDB ${{ matrix.fdb-version }}
-      run: |
-        # Download and install FoundationDB
-        FDB_VERSION="${{ matrix.fdb-version }}"
-        wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb
-        wget https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb
-        sudo dpkg -i foundationdb-clients_${FDB_VERSION}-1_amd64.deb foundationdb-server_${FDB_VERSION}-1_amd64.deb
+    - name: Setup FoundationDB
+      uses: ./.github/actions/setup-fdb
+      with:
+        fdb_version: ${{ matrix.fdb-version }}
 
-        # Wait for FoundationDB to be ready
-        sleep 5
-        fdbcli --exec status --timeout 10
-
-    - name: Setup Swift ${{ matrix.swift-version }}
-      run: |
-        # Download and install Swift
-        SWIFT_VERSION="${{ matrix.swift-version }}"
-        SWIFT_URL="https://download.swift.org/swift-${SWIFT_VERSION}-release/ubuntu2204/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-ubuntu22.04.tar.gz"
-
-        wget $SWIFT_URL
-        tar xzf swift-${SWIFT_VERSION}-RELEASE-ubuntu22.04.tar.gz
-        sudo mv swift-${SWIFT_VERSION}-RELEASE-ubuntu22.04 /usr/share/swift
-
-        echo "/usr/share/swift/usr/bin" >> $GITHUB_PATH
+    - name: Setup Swift
+      uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
+      with:
+        swift-version: "${{ matrix.swift-version }}"
 
     - name: Build Bindings
       run: swift build
