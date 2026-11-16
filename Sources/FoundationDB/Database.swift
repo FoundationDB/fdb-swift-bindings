@@ -30,21 +30,17 @@ import CFoundationDB
 /// let database = try FDBClient.openDatabase()
 /// let transaction = try database.createTransaction()
 /// ```
-public final class FDBDatabase: DatabaseProtocol {
+public final class FDBDatabase: DatabaseProtocol, Sendable {
     /// The underlying FoundationDB database pointer.
-    private let database: OpaquePointer
+    private let database: SendablePointer
 
     /// Initializes a new database instance with the given database pointer.
     ///
     /// - Parameter database: The underlying FoundationDB database pointer.
     init(database: OpaquePointer) {
-        self.database = database
+        self.database = SendablePointer(pointer: database, destructor: fdb_database_destroy)
     }
 
-    /// Cleans up the database connection when the instance is deallocated.
-    deinit {
-        fdb_database_destroy(database)
-    }
 
     /// Creates a new transaction for database operations.
     ///
@@ -55,7 +51,7 @@ public final class FDBDatabase: DatabaseProtocol {
     /// - Throws: `FDBError` if the transaction cannot be created.
     public func createTransaction() throws -> FDBTransaction {
         var transaction: OpaquePointer?
-        let error = fdb_database_create_transaction(database, &transaction)
+        let error = fdb_database_create_transaction(database.pointer, &transaction)
         if error != 0 {
             throw FDBError(code: error)
         }
@@ -78,14 +74,14 @@ public final class FDBDatabase: DatabaseProtocol {
         if let value = value {
             error = value.withUnsafeBytes { bytes in
                 fdb_database_set_option(
-                    database,
+                    database.pointer,
                     FDBDatabaseOption(option.rawValue),
                     bytes.bindMemory(to: UInt8.self).baseAddress,
                     Int32(value.count)
                 )
             }
         } else {
-            error = fdb_database_set_option(database, FDBDatabaseOption(option.rawValue), nil, 0)
+            error = fdb_database_set_option(database.pointer, FDBDatabaseOption(option.rawValue), nil, 0)
         }
 
         if error != 0 {
