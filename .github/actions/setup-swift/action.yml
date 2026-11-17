@@ -1,0 +1,36 @@
+name: Setup Swift
+description: >
+  Install a Swift toolchain from swift.org (x86_64 Ubuntu 22.04 or 24.04) and add it to the PATH.
+
+inputs:
+  swift_version:
+    description: >
+      Swift release to install, as it appears in swift.org download URLs, e.g. 6.4.2. Note that
+      6.4 and later name their first release 6.4.0, so a bare 6.4 will not resolve.
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Swift ${{ inputs.swift_version }}
+      shell: bash
+      env:
+        SWIFT_VERSION: ${{ inputs.swift_version }}
+      run: |
+        . /etc/os-release
+        case "${VERSION_ID}" in
+          22.04|24.04) ;;
+          *) echo "::error::setup-swift only supports Ubuntu 22.04 and 24.04 (found ${VERSION_ID})"; exit 1 ;;
+        esac
+        # e.g. "ubuntu2404" in the download path and "ubuntu24.04" in the file name
+        PLATFORM="ubuntu${VERSION_ID//./}"
+        NAME="swift-${SWIFT_VERSION}-RELEASE-ubuntu${VERSION_ID}"
+        SWIFT_URL="https://download.swift.org/swift-${SWIFT_VERSION}-release/${PLATFORM}/swift-${SWIFT_VERSION}-RELEASE/${NAME}.tar.gz"
+
+        # Download and install Swift
+        wget --no-verbose "${SWIFT_URL}"
+        tar xzf "${NAME}.tar.gz"
+        rm "${NAME}.tar.gz"
+        sudo mv "${NAME}" /usr/share/swift
+
+        echo "/usr/share/swift/usr/bin" >> "${GITHUB_PATH}"
