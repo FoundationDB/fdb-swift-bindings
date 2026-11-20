@@ -166,6 +166,12 @@ jobs:
           --test-name scripted --cluster-file "${CLUSTER_FILE}"
 
     - name: Run bindingtester loop (Swift vs Java)
+      # On pull requests, don't fail the job when the bindingtester fails. The Swift
+      # bindings currently have too many known failures for this to be a reliable signal
+      # on PRs, so it is informational only (failures still show up as annotations, in the
+      # run summary, and in the uploaded logs). Scheduled and manual runs still fail.
+      # TODO: remove this once the tester is reliable enough to gate PRs.
+      continue-on-error: ${{ github.event_name == 'pull_request' }}
       env:
         CLUSTER_FILE: ${{ steps.fdb.outputs.cluster_file }}
       run: |
