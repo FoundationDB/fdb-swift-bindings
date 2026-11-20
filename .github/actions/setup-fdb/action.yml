@@ -1,0 +1,46 @@
+name: Setup FDB
+description: >
+  Install the FoundationDB client and server packages (Ubuntu, amd64) and wait for the
+  local server to be available.
+
+inputs:
+  fdb_version:
+    description: "Version of FoundationDB to install (a release of apple/foundationdb)"
+    required: true
+
+outputs:
+  cluster_file:
+    description: "Path to the cluster file of the local server"
+    value: ${{ steps.wait.outputs.cluster_file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install FoundationDB ${{ inputs.fdb_version }}
+      shell: bash
+      env:
+        FDB_VERSION: ${{ inputs.fdb_version }}
+      run: |
+        base="https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}"
+        wget -q "${base}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+        wget -q "${base}/foundationdb-server_${FDB_VERSION}-1_amd64.deb"
+        sudo dpkg -i "foundationdb-clients_${FDB_VERSION}-1_amd64.deb" "foundationdb-server_${FDB_VERSION}-1_amd64.deb"
+        rm -f foundationdb-*.deb
+
+    - name: Wait for FoundationDB
+      id: wait
+      shell: bash
+      run: |
+        # The package normally starts the service and writes /etc/foundationdb/fdb.cluster.
+        sudo service foundationdb status || sudo service foundationdb start
+        healthy=false
+        for i in $(seq 1 30); do
+          # Capture first: `grep -q` closing the pipe early would trip pipefail.
+          status=$(fdbcli --exec 'status minimal' --timeout 10 || true)
+          if grep -q "The database is available" <<<"${status}"; then healthy=true; break; fi
+          sleep 2
+        done
+        # Write out final database status so that we have that in the logs (especially if things fail)
+        fdbcli --exec status --timeout 10 || true
+        if [ "${healthy}" != true ]; then echo "::error::FoundationDB did not become available"; exit 1; fi
+        echo "cluster_file=/etc/foundationdb/fdb.cluster" >> "${GITHUB_OUTPUT}"

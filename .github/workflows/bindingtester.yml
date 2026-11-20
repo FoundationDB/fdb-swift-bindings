@@ -1,0 +1,201 @@
+name: Binding Tester
+
+# Runs the FoundationDB binding tester against the Swift stack tester
+# (Tests/StackTester), comparing results with the Java binding. Random seeds are
+# generated in a loop until a time or failure limit is hit; any failing seed
+# fails the job. See https://github.com/FoundationDB/fdb-swift-bindings/issues/27
+#
+# On pull requests, a deterministic subset runs instead: the scripted test plus the
+# non-concurrent `api` configuration with seeds derived from a fixed meta-seed, so that any failure
+# is reproducible rather than a product of random seed selection.
+#
+# Note: the directory layer tests are skipped until the Swift bindings have a
+# directory layer (https://github.com/FoundationDB/fdb-swift-bindings/issues/18),
+# so a green run does not cover them.
+
+on:
+  workflow_dispatch:
+    inputs:
+      fdb-version:
+        description: "FoundationDB release (default: 8.0.0)"
+        type: string
+      time-limit-minutes:
+        description: "Time limit in minutes (default: 60; max: 90; ignored on pull requests)"
+        type: string
+      max-failures:
+        description: "Maximum number of failures (default: 5)"
+        type: string
+      config:
+        description: "Optional: only run this test configuration; required with seed"
+        default: ""
+        type: string
+      seed:
+        description: "Optional: seed for the first run (to reproduce a failure); requires config"
+        default: ""
+        type: string
+  pull_request:
+  schedule:
+    - cron: "0 8 * * *" # daily at 08:00 UTC
+
+permissions:
+  contents: read
+
+# Scheduled/manual runs are long, so queue behind a running one instead of cancelling it.
+# Superseded PR runs are cancelled, though.
+# (GitHub keeps only one pending run per group; a newer pending run replaces an older one.)
+concurrency:
+  group: bindingtester-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  bindingtester:
+    name: Swift vs Java
+    # Only run on schedule in the upstream repository; forks can still dispatch manually.
+    if: github.event_name != 'schedule' || github.repository == 'FoundationDB/fdb-swift-bindings'
+    # The setup-swift action supports Ubuntu 22.04 and 24.04 only; `ubuntu-latest` is moving to 26.04.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      # Defaults live here (and only here): `inputs` is empty on scheduled runs, so the
+      # fallbacks are needed, and input `default:`s would just duplicate them.
+      FDB_VERSION: ${{ inputs.fdb-version || '8.0.0' }}
+      SWIFT_VERSION: "6.4.2"
+      TIME_LIMIT_MINUTES: ${{ inputs.time-limit-minutes || '60' }}
+      MAX_FAILURES: ${{ inputs.max-failures || '5' }}
+      START_SEED: ${{ inputs.seed || '' }}
+      ONLY_CONFIG: ${{ inputs.config || '' }}
+      FDB_SRC: ${{ github.workspace }}/fdb-src
+      # Pull requests draw their seeds from this fixed meta-seed (via a seeded PRNG in
+      # bindingtester_loop.py), so every PR runs the same sequence of seeds and failures
+      # reproduce. A fixed number of seeds is run (rather than for a fixed time) so that machine
+      # speed doesn't change which tests run. The seeds used are printed in the log and in each
+      # failure's repro command.
+      PR_META_SEED: "266034925" # 0x0fdb5eed
+      PR_NUM_SEEDS: "100"
+      IS_PR: ${{ github.event_name == 'pull_request' }}
+
+    steps:
+    - name: Report run parameters
+      run: |
+        # Surface the effective parameters (inputs or defaults) on the run summary page.
+        {
+          echo "## bindingtester parameters"
+          echo ""
+          echo "| Parameter | Value |"
+          echo "|---|---|"
+          echo "| FoundationDB version | \`${FDB_VERSION}\` |"
+          echo "| Time limit (minutes) | \`${TIME_LIMIT_MINUTES}\` |"
+          echo "| Max failures | \`${MAX_FAILURES}\` |"
+          echo "| Config | \`${ONLY_CONFIG:-all}\` |"
+          echo "| Starting seed | \`${START_SEED:-random}\` |"
+          if [ "${IS_PR}" = true ]; then
+            echo "| Mode | deterministic (scripted + \`api\`, ${PR_NUM_SEEDS} seeds from meta-seed \`${PR_META_SEED}\`) |"
+          fi
+          echo ""
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    - name: Check time limit
+      run: |
+        # The job times out at 150 minutes; leave room for setup and one in-flight run.
+        if [ "${TIME_LIMIT_MINUTES%.*}" -gt 90 ]; then
+          echo "::error::time-limit-minutes must be at most 90"; exit 1
+        fi
+
+    - name: Checkout swift bindings
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Checkout FoundationDB bindings (bindingtester, Java tester sources)
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: apple/foundationdb
+        ref: ${{ env.FDB_VERSION }}
+        path: fdb-src
+        sparse-checkout: bindings
+        fetch-depth: 1
+
+    - name: Setup FoundationDB
+      id: fdb
+      uses: ./.github/actions/setup-fdb
+      with:
+        fdb_version: ${{ env.FDB_VERSION }}
+
+    - name: Setup Swift
+      uses: ./.github/actions/setup-swift
+      with:
+        swift_version: ${{ env.SWIFT_VERSION }}
+
+    - name: Build Swift stack tester
+      run: |
+        # Debug configuration: StackTester uses `@testable import FoundationDB`, which
+        # requires the library to be built with testing enabled (not the case for release).
+        swift build --product StackTester
+        # known_testers.py expects the Swift tester at bindings/swift/bin/stacktester_swift
+        mkdir -p "${FDB_SRC}/bindings/swift/bin"
+        cp "$(swift build --show-bin-path)/StackTester" "${FDB_SRC}/bindings/swift/bin/stacktester_swift"
+
+    - name: Setup Java and build Java stack tester
+      uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      with:
+        distribution: temurin
+        java-version: "17"
+
+    - name: Fetch Java binding and compile Java stack tester
+      run: |
+        java_dir="${FDB_SRC}/bindings/java"
+        # known_testers.py expects these two jars in bindings/java
+        curl -fsSL -o "${java_dir}/foundationdb-client.jar" \
+          "https://repo1.maven.org/maven2/org/foundationdb/fdb-java/${FDB_VERSION}/fdb-java-${FDB_VERSION}.jar"
+        mkdir -p tests-classes
+        find "${java_dir}/src/test" -name '*.java' > java-test-sources.txt
+        javac -nowarn -cp "${java_dir}/foundationdb-client.jar" -d tests-classes @java-test-sources.txt
+        jar cf "${java_dir}/foundationdb-tests.jar" -C tests-classes .
+
+    - name: Setup Python and install the FoundationDB Python binding
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.11"
+    - run: python -m pip install "foundationdb==${FDB_VERSION}"
+
+    - name: Smoke test the harness (Java scripted test)
+      env:
+        CLUSTER_FILE: ${{ steps.fdb.outputs.cluster_file }}
+      # Validates the server, Python binding and Java tester independently of the Swift tester,
+      # so infrastructure problems are distinguishable from Swift failures.
+      run: |
+        python -u "${FDB_SRC}/bindings/bindingtester/bindingtester.py" java \
+          --test-name scripted --cluster-file "${CLUSTER_FILE}"
+
+    - name: Run bindingtester loop (Swift vs Java)
+      # On pull requests, don't fail the job when the bindingtester fails. The Swift
+      # bindings currently have too many known failures for this to be a reliable signal
+      # on PRs, so it is informational only (failures still show up as annotations, in the
+      # run summary, and in the uploaded logs). Scheduled and manual runs still fail.
+      # TODO: remove this once the tester is reliable enough to gate PRs.
+      continue-on-error: ${{ github.event_name == 'pull_request' }}
+      env:
+        CLUSTER_FILE: ${{ steps.fdb.outputs.cluster_file }}
+      run: |
+        args=(--bindingtester-dir "${FDB_SRC}/bindings/bindingtester"
+              --cluster-file "${CLUSTER_FILE}"
+              --tester swift --reference java
+              --time-limit-minutes "${TIME_LIMIT_MINUTES}"
+              --max-failures "${MAX_FAILURES}"
+              --output-dir bindingtester-results)
+        if [ "${IS_PR}" = true ]; then
+          # Deterministic subset: non-concurrent `api` config only, seeds from a fixed meta-seed, a fixed number
+          # of them (the time limit is ignored). MAX_FAILURES still applies.
+          args+=(--only api --meta-seed "${PR_META_SEED}" --num-seeds "${PR_NUM_SEEDS}")
+        else
+          if [ -n "${START_SEED}" ]; then args+=(--seed "${START_SEED}"); fi
+          if [ -n "${ONLY_CONFIG}" ]; then args+=(--only "${ONLY_CONFIG}"); fi
+        fi
+        python .github/scripts/bindingtester_loop.py "${args[@]}"
+
+    - name: Upload results and failure logs
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: bindingtester-results
+        path: bindingtester-results/
+        retention-days: 14
+        if-no-files-found: warn
