@@ -21,52 +21,173 @@
 import Foundation
 @testable import FoundationDB
 
-// Simple stack entry - equivalent to Go's stackEntry
+
+/// Data type that can be pushed onto the stack. It either represents an immediate value pushed onto the stack
+/// (in the `.element` case) or a future that will complete with a value later (in the `.future`) case.
+enum StackItem {
+    case element(TupleElement)
+    case future(PendingFuture)
+}
+
+/// Simple stack entry. See `StackItem` for more details on the stack data elements.
 struct StackEntry {
-    let item: Any
+    let item: StackItem
     let idx: Int
 }
 
+func toBytes(_ str: String) -> FDB.Bytes {
+    FDB.Bytes(str.utf8)
+}
+
+
+/// Isolation of a given operation. This can be one of three levels:
+///  * `.database` indicates that this runs in its own transaction that is retried and committed independently
+///  * `.snapshot` indicates that this runs in the current transaction but with `SNAPSHOT` read isolation
+///  * `.serializable` is the default and indicates that this runs in the current transaction with default (serializable) isolation
+/// Each instruction in the stack machine can specify this via their suffix. For instance, `GET_RANGE` runs at `.serializable`,
+///  `GET_RANGE_SNAPSHOT` runs at `.snapshot`, and `GET_RANGE_DATABASE` runs at `.database`.
+enum OperationIsolation {
+    case database
+    case snapshot
+    case serializable
+
+    static private func withoutSuffixIfPresent(_ op: String, suffix: String) -> String? {
+        if op.hasSuffix(suffix) {
+            String(op.dropLast(suffix.count))
+        } else {
+            nil
+        }
+    }
+
+    /// Split an instruction name such as `GET_RANGE_SNAPSHOT` into `("GET_RANGE", .snapshot)`.
+    static func split(_ op: String) -> (op: String, opIsolation: OperationIsolation) {
+        if let dbOp = withoutSuffixIfPresent(op, suffix: "_DATABASE") {
+            (dbOp, .database)
+        } else if let snapshotOp = withoutSuffixIfPresent(op, suffix: "_SNAPSHOT") {
+            (snapshotOp, .snapshot)
+        } else {
+            (op, .serializable)
+        }
+    }
+}
+
+/// Start `operation` running right away, on the current executor, until its first suspension point.
+/// A plain `Task` would only be scheduled to start later, and may not have begun when the next
+/// instruction runs. Falls back to a plain `Task` on OS versions without `Task.immediate`.
+func startImmediately<T: Sendable>(
+    _ operation: sending @escaping @isolated(any) () async throws -> T
+) -> Task<T, any Error> {
+    if #available(macOS 26, iOS 26, tvOS 26, watchOS 26, visionOS 26, *) {
+        return Task.immediate(operation: operation)
+    } else {
+        return Task(operation: operation)
+    }
+}
+
+/// A stack item whose value is not available yet, such as the versionstamp of an uncommitted
+/// transaction. It is resolved when it is popped, like the futures other bindings push.
+struct PendingFuture: Sendable {
+    let wait: @Sendable () async throws -> FDB.Bytes?
+}
+
 class StackMachine {
-    private let prefix: [UInt8]
+    private let prefix: FDB.Bytes
     private var stack: [StackEntry] = []
     private var database: FDBDatabase
     private let verbose: Bool
     private var transaction: FDBTransaction?
-    private var transactionMap: [String: any TransactionProtocol] = [:]
-    private var transactionName: String = "MAIN"
+    private var transactionMap: [FDB.Bytes: any TransactionProtocol] = [:]
+    private var transactionName: FDB.Bytes
     private var lastVersion: Int64 = 0
 
-    init(prefix: [UInt8], database: FDBDatabase, verbose: Bool) {
+    init(prefix: FDB.Bytes, database: FDBDatabase, verbose: Bool) {
         self.prefix = prefix
         self.database = database
         self.verbose = verbose
+        // Like the other bindings, each stack machine starts out using a transaction named by its prefix.
+        self.transactionName = prefix
     }
 
     // Equivalent to Go's waitAndPop with error handling
-    func waitAndPop() -> StackEntry {
+    func waitAndPop() async -> (item: TupleElement, idx: Int) {
         guard !stack.isEmpty else {
             fatalError("Stack is empty")
         }
 
-        let ret = stack.removeLast()
+        let entry = stack.removeLast()
+        if case let .element(element) = entry.item {
+            return (item: element, idx: entry.idx)
+        }
 
-        // Handle futures and convert types like in Go
-        switch ret.item {
-        case let data as [UInt8]:
-            return StackEntry(item: data, idx: ret.idx)
-        case let string as String:
-            return StackEntry(item: Array(string.utf8), idx: ret.idx)
-        case let int as Int64:
-            return StackEntry(item: int, idx: ret.idx)
-        default:
-            return ret
+        // Items keep their types: unicode strings and byte strings are distinct tuple types.
+        guard case let .future(pending) = entry.item else {
+            fatalError("Unexpected pending entry: \(entry.item)")
+        }
+        // Resolve pending futures. A void or missing result is RESULT_NOT_PRESENT and an error
+        // becomes the packed ("ERROR", <code>) tuple.
+        do {
+            let result = try await pending.wait()
+            return (item: .bytes(result ?? toBytes("RESULT_NOT_PRESENT")), idx: entry.idx)
+        } catch let error as FDBError {
+            return (item: .bytes(errorTuple(error)), idx: entry.idx)
+        } catch {
+            fatalError("Unexpected error resolving future: \(error)")
         }
     }
 
-    // Equivalent to Go's store
-    func store(_ idx: Int, _ item: Any) {
+    /// The packed tuple `("ERROR", <code>)` pushed in place of a failed operation's result.
+    func errorTuple(_ error: FDBError) -> FDB.Bytes {
+        Tuple(toBytes("ERROR"), toBytes(String(error.code))).encode()
+    }
+
+    /// Pop an item that is used as a byte string. Unicode strings are accepted and sent as UTF-8,
+    /// as the other bindings do.
+    func popBytes() async -> FDB.Bytes {
+        let item = await waitAndPop().item
+        switch item {
+        case let .bytes(bytes):
+            return bytes
+        case let .string(string):
+            return toBytes(string)
+        default:
+            fatalError("Expected a byte string on the stack, found \(item)")
+        }
+    }
+
+    /// Pop an item that is used as a byte string. Unicode strings are accepted and sent as UTF-8,
+    /// as the other bindings do.
+    func popInt() async -> Int64 {
+        let item = await waitAndPop().item
+        switch item {
+        case let .int(int):
+            return int
+        default:
+            fatalError("Expected an integer on the stack, found \(item)")
+        }
+    }
+
+    /// Pop `count` items, returned in the order popped (top of the stack first).
+    func popTupleElements(_ count: Int) async -> [TupleElement] {
+        var elements: [TupleElement] = []
+        for _ in 0 ..< count {
+            elements.append(await waitAndPop().item)
+        }
+        return elements
+    }
+
+    /// Store an item on the stack. It appends the entry to the end of the list representing storage on the stack.
+    /// A `StackItem` can either be some `Tuple`element or a `PendingFuture` representing work that
+    /// has not yet completed.
+    func store(_ idx: Int, _ item: StackItem) {
         stack.append(StackEntry(item: item, idx: idx))
+    }
+
+    func store(_ idx: Int, _ item: some TupleElementConvertible) {
+        store(idx, .element(item.tupleElement()))
+    }
+
+    func store(_ idx: Int, _ item: PendingFuture) {
+        store(idx, .future(item))
     }
 
     // Get current transaction (create if needed)
@@ -88,9 +209,8 @@ class StackMachine {
     }
 
     // Switch to a different transaction by name
-    func switchTransaction(_ name: [UInt8]) throws {
-        let nameString = String(bytes: name, encoding: .utf8) ?? "MAIN"
-        transactionName = nameString
+    func switchTransaction(_ name: FDB.Bytes) throws {
+        transactionName = name
 
         // Create transaction if it doesn't exist
         if transactionMap[transactionName] == nil {
@@ -99,8 +219,8 @@ class StackMachine {
     }
 
     // Helper method to pack range results like Python's push_range
-    func pushRange(_ idx: Int, _ records: [(key: [UInt8], value: [UInt8])], prefixFilter: [UInt8]? = nil) {
-        var kvs: [any TupleElement] = []
+    func pushRange(_ idx: Int, _ records: [(key: FDB.Bytes, value: FDB.Bytes)], prefixFilter: FDB.Bytes? = nil) {
+        var kvs: [any TupleElementConvertible] = []
         for (key, value) in records {
             if let prefix = prefixFilter {
                 if key.starts(with: prefix) {
@@ -117,36 +237,27 @@ class StackMachine {
     }
 
     // Helper method to filter key results with prefix
-    func filterKeyResult(_ key: [UInt8], prefix: [UInt8]) -> [UInt8] {
+    func filterKeyResult(_ key: FDB.Bytes, prefix: FDB.Bytes) throws -> FDB.Bytes {
         if key.starts(with: prefix) {
             return key
         } else if key.lexicographicallyPrecedes(prefix) {
             return prefix
         } else {
-            return prefix + [0xFF]
+            return try FDB.strinc(prefix)
         }
     }
 
     // Helper method to log a batch of stack entries
-    func logStackBatch(_ entries: [(stackIndex: Int, entry: StackEntry)], prefix: [UInt8]) async throws {
+    func logStackBatch(_ entries: [(stackIndex: Int, entry: (item: TupleElement, idx: Int))], prefix: FDB.Bytes) async throws {
         try await database.withTransaction { transaction in
             for (stackIndex, entry) in entries {
                 // Create key: prefix + tuple(stackIndex, entry.idx)
-                let keyTuple = Tuple([Int64(stackIndex), Int64(entry.idx)])
+                let keyTuple = Tuple(stackIndex, entry.idx)
                 var key = prefix
                 key.append(contentsOf: keyTuple.encode())
 
-                // Pack value as a tuple (matching Python/Go behavior)
-                let valueTuple: Tuple
-                if let data = entry.item as? [UInt8] {
-                    valueTuple = Tuple([data])
-                } else if let str = entry.item as? String {
-                    valueTuple = Tuple([str])
-                } else if let int = entry.item as? Int64 {
-                    valueTuple = Tuple([int])
-                } else {
-                    valueTuple = Tuple([Array("UNKNOWN_ITEM".utf8)])
-                }
+                // Pack value as a one-element tuple (matching Python/Go behavior)
+                let valueTuple = Tuple(entry.item)
 
                 var packedValue = valueTuple.encode()
 
@@ -162,17 +273,106 @@ class StackMachine {
         }
     }
 
+    /// Run a read according to `opIsolation`: against a fresh retried transaction for
+    /// `_DATABASE`, as a snapshot read on the current transaction for `_SNAPSHOT`, or as a
+    /// regular read on the current transaction otherwise.
+    func read<T>(
+        _ opIsolation: OperationIsolation,
+        _ body: (any TransactionProtocol, _ snapshot: Bool) async throws -> sending T
+    ) async throws -> sending T {
+        switch opIsolation {
+        case .database:
+            return try await database.withTransaction { transaction in
+                try await body(transaction, false)
+            }
+        case .snapshot:
+            return try await body(try currentTransaction(), true)
+        case .serializable:
+            return try await body(try currentTransaction(), false)
+        }
+    }
+
+    /// Apply a mutation according to `opIsolation`. `_DATABASE` mutations run in their own retried,
+    /// committed transaction and push `RESULT_NOT_PRESENT` (the result of a void future).
+    func mutate(
+        _ idx: Int,
+        _ opIsolation: OperationIsolation,
+        _ body: (any TransactionProtocol) throws -> Void
+    ) async throws {
+        if opIsolation == .database {
+            try await database.withTransaction { transaction in
+                try body(transaction)
+                return Void()
+            }
+            store(idx, toBytes("RESULT_NOT_PRESENT"))
+        } else {
+            try body(try currentTransaction())
+        }
+    }
+
+    /// Read a range, following `more` until `limit` is reached (0 means no limit).
+    ///
+    /// The bindings' range reads do not support reverse reads or streaming modes yet, so reverse
+    /// reads are faked by reading the whole range and reversing it, and the streaming mode is
+    /// ignored. TODO: use the real thing once `getRange` supports them.
+    func readRange(
+        _ transaction: any TransactionProtocol,
+        begin: FDB.KeySelector,
+        end: FDB.KeySelector,
+        limit: Int,
+        reverse: Bool = false,
+        snapshot: Bool
+    ) async throws -> [(key: FDB.Bytes, value: FDB.Bytes)] {
+        let forwardLimit = reverse ? 0 : limit
+        var results: [(key: FDB.Bytes, value: FDB.Bytes)] = []
+        // TODO: Include limit and reverse in direct call once this is available
+        // See: https://github.com/FoundationDB/fdb-swift-bindings/issues/33
+        for try await kv in transaction.getRange(beginSelector: begin, endSelector: end, snapshot: snapshot) {
+            results.append(kv)
+            if forwardLimit != 0 && results.count == forwardLimit {
+                break
+            }
+        }
+        if reverse {
+            results.reverse()
+            if limit != 0 && results.count > limit {
+                results.removeLast(results.count - limit)
+            }
+        }
+        return results
+    }
+
     // Process a single instruction - subset of Go's processInst
-    func processInstruction(_ idx: Int, _ instruction: [Any]) async throws {
-        guard let op = instruction.first as? String else {
+    func processInstruction(
+        _ idx: Int,
+        _ instruction: Tuple,
+        threads: inout ThrowingTaskGroup<Void, any Error>
+    ) async throws {
+        guard case let .string(rawOp) = instruction[0] else {
             fatalError("Invalid instruction format")
         }
+        let (op, opIsolation) = OperationIsolation.split(rawOp)
 
         if verbose {
-            print("\(idx). Instruction is \(op)")
-            print("Stack: [\(stack.map { "\($0.item)" }.joined(separator: ", "))] (\(stack.count))")
+            print("[\(String(decoding: prefix, as: UTF8.self))] \(idx). \(rawOp) (stack size \(stack.count))")
         }
 
+        do {
+            try await execute(idx, op, opIsolation, instruction, threads: &threads)
+        } catch let error as FDBError {
+            // Errors from FDB operations are pushed as the packed tuple ("ERROR", <code>).
+            store(idx, errorTuple(error))
+        }
+
+    }
+
+    private func execute(
+        _ idx: Int,
+        _ op: String,
+        _ opIsolation: OperationIsolation,
+        _ instruction: Tuple,
+        threads: inout ThrowingTaskGroup<Void, any Error>
+    ) async throws {
         switch op {
         case "PUSH":
             assert(instruction.count > 1)
@@ -180,7 +380,7 @@ class StackMachine {
 
         case "POP":
             assert(!stack.isEmpty)
-            _ = waitAndPop()
+            _ = await waitAndPop()
 
         case "DUP":
             assert(!stack.isEmpty)
@@ -192,7 +392,7 @@ class StackMachine {
 
         case "SWAP":
             assert(!stack.isEmpty)
-            let swapIdx = waitAndPop().item as! Int64
+            let swapIdx = await popInt()
             let lastIdx = stack.count - 1
             let targetIdx = lastIdx - Int(swapIdx)
             assert(targetIdx >= 0 && targetIdx < stack.count)
@@ -200,18 +400,18 @@ class StackMachine {
 
         case "SUB":
             assert(stack.count >= 2)
-            let x = waitAndPop().item as! Int64
-            let y = waitAndPop().item as! Int64
+            let x = await popInt()
+            let y = await popInt()
             store(idx, x - y)
 
         case "CONCAT":
             assert(stack.count >= 2)
-            let str1 = waitAndPop().item
-            let str2 = waitAndPop().item
+            let str1 = await waitAndPop().item
+            let str2 = await waitAndPop().item
 
-            if let s1 = str1 as? String, let s2 = str2 as? String {
+            if case let .string(s1) = str1, case let .string(s2) = str2 {
                 store(idx, s1 + s2)
-            } else if let d1 = str1 as? [UInt8], let d2 = str2 as? [UInt8] {
+            } else if case let .bytes(d1) = str1, case let .bytes(d2) = str2 {
                 store(idx, d1 + d2)
             } else {
                 fatalError("Invalid CONCAT parameters")
@@ -221,11 +421,11 @@ class StackMachine {
             try newTransaction()
 
         case "USE_TRANSACTION":
-            let name = waitAndPop().item as! [UInt8]
+            let name = await popBytes()
             try switchTransaction(name)
 
         case "ON_ERROR":
-            let errorCode = waitAndPop().item as! Int64
+            let errorCode = await popInt()
             let transaction = try currentTransaction()
 
             // Create FDBError from the error code
@@ -235,7 +435,7 @@ class StackMachine {
             do {
                 try await transaction.onError(error)
                 // If onError succeeds, the transaction has been reset and is ready to retry
-                store(idx, Array("RESULT_NOT_PRESENT".utf8))
+                store(idx, toBytes("RESULT_NOT_PRESENT"))
             } catch {
                 // If onError fails, store the error (transaction should not be retried)
                 throw error
@@ -244,42 +444,32 @@ class StackMachine {
         case "GET_READ_VERSION":
             let transaction = try currentTransaction()
             lastVersion = try await transaction.getReadVersion()
-            store(idx, Array("GOT_READ_VERSION".utf8))
+            store(idx, toBytes("GOT_READ_VERSION"))
 
         case "SET":
             assert(stack.count >= 2)
-            let key = waitAndPop().item as! [UInt8]
-            let value = waitAndPop().item as! [UInt8]
-
-            try await database.withTransaction { transaction in
-                transaction.setValue(value, for: key)
-                return ()
-            }
+            let key = await popBytes()
+            let value = await popBytes()
+            try await mutate(idx, opIsolation) { $0.setValue(value, for: key) }
 
         case "GET":
             assert(!stack.isEmpty)
-            let key = waitAndPop().item as! [UInt8]
-
-            let result = try await database.withTransaction { transaction in
-                try await transaction.getValue(for: key, snapshot: false)
+            let key = await popBytes()
+            let result = try await read(opIsolation) { transaction, snapshot in
+                try await transaction.getValue(for: key, snapshot: snapshot)
             }
-
-            if let value = result {
-                store(idx, value)
-            } else {
-                store(idx, Array("RESULT_NOT_PRESENT".utf8))
-            }
+            store(idx, result ?? toBytes("RESULT_NOT_PRESENT"))
 
         case "LOG_STACK":
             assert(!stack.isEmpty)
-            let logPrefix = waitAndPop().item as! [UInt8]
+            let logPrefix = await popBytes()
 
             // Process stack in batches of 100 like Python/Go implementations
-            var entries: [(stackIndex: Int, entry: StackEntry)] = []
+            var entries: [(stackIndex: Int, entry: (item: TupleElement, idx: Int))] = []
             var stackIndex = stack.count - 1
 
             while !stack.isEmpty {
-                let entry = waitAndPop()
+                let entry = await waitAndPop()
                 entries.append((stackIndex: stackIndex, entry: entry))
                 stackIndex -= 1
 
@@ -297,7 +487,8 @@ class StackMachine {
         case "COMMIT":
             let transaction = try currentTransaction()
             _ = try await transaction.commit()
-            store(idx, Array("COMMIT_RESULT".utf8))
+            // The (optional) future pushed by COMMIT is void, so it resolves to RESULT_NOT_PRESENT.
+            store(idx, toBytes("RESULT_NOT_PRESENT"))
 
         case "RESET":
             if transactionMap[transactionName] as? FDBTransaction != nil {
@@ -310,199 +501,182 @@ class StackMachine {
             }
 
         case "GET_KEY":
-            // Python order: key, or_equal, offset, prefix = inst.pop(4)
-            let prefix = waitAndPop().item as! [UInt8]
-            let offset = Int(waitAndPop().item as! Int64)
-            let orEqual = (waitAndPop().item as! Int64) != 0
-            let key = waitAndPop().item as! [UInt8]
+            // Top of stack first: KEY, OR_EQUAL, OFFSET, PREFIX
+            let key = await popBytes()
+            let orEqual = (await popInt()) != 0
+            let offset = Int(await popInt())
+            let prefix = await popBytes()
 
             let selector = FDB.KeySelector(key: key, orEqual: orEqual, offset: offset)
-            let transaction = try currentTransaction()
-
-            if let resultKey = try await transaction.getKey(selector: selector, snapshot: false) {
-                let filteredKey = filterKeyResult(resultKey, prefix: prefix)
-                store(idx, filteredKey)
-            } else {
-                store(idx, Array("RESULT_NOT_PRESENT".utf8))
+            let resultKey = try await read(opIsolation) { transaction, snapshot in
+                try await transaction.getKey(selector: selector, snapshot: snapshot)
             }
+            store(idx, try filterKeyResult(resultKey ?? [], prefix: prefix))
 
         case "GET_RANGE":
-            // Python/Go order: begin, end, limit, reverse, mode (but Go pops in reverse)
-            // Go pops: mode, reverse, limit, endKey, beginKey
-            _ = waitAndPop().item as! Int64 // Streaming mode, ignore for now
-            _ = (waitAndPop().item as! Int64) != 0
-            let limit = Int(waitAndPop().item as! Int64)
-            let endKey = waitAndPop().item as! [UInt8]
-            let beginKey = waitAndPop().item as! [UInt8]
-            let transaction = try currentTransaction()
+            // Top of stack first: BEGIN_KEY, END_KEY, LIMIT, REVERSE, STREAMING_MODE
+            let beginKey = await popBytes()
+            let endKey = await popBytes()
+            let limit = Int(await popInt())
+            let reverse = await popInt() != 0
+            _ = await waitAndPop() // STREAMING_MODE: not supported by the bindings yet
 
-            let result = try await transaction.getRangeNative(
-                beginKey: beginKey,
-                endKey: endKey,
-                limit: limit,
-                snapshot: false
-            )
-
-            pushRange(idx, result.records)
+            let records = try await read(opIsolation) { transaction, snapshot in
+                try await readRange(
+                    transaction,
+                    begin: .firstGreaterOrEqual(beginKey),
+                    end: .firstGreaterOrEqual(endKey),
+                    limit: limit,
+                    reverse: reverse,
+                    snapshot: snapshot
+                )
+            }
+            pushRange(idx, records)
 
         case "GET_RANGE_STARTS_WITH":
-            // Python order: prefix, limit, reverse, mode (pops 4 parameters)
-            // Go order: same but pops in reverse
-            _ = waitAndPop().item as! Int64 // Streaming mode, ignore for now
-            _ = (waitAndPop().item as! Int64) != 0
-            let limit = Int(waitAndPop().item as! Int64)
-            let prefix = waitAndPop().item as! [UInt8]
-            let transaction = try currentTransaction()
+            // Top of stack first: PREFIX, LIMIT, REVERSE, STREAMING_MODE
+            let prefix = await popBytes()
+            let limit = Int(await popInt())
+            let reverse = await popInt() != 0
+            _ = await waitAndPop() // STREAMING_MODE: not supported by the bindings yet
 
-            var endKey = prefix
-            endKey.append(0xFF)
-
-            let result = try await transaction.getRangeNative(
-                beginKey: prefix,
-                endKey: endKey,
-                limit: limit,
-                snapshot: false
-            )
-
-            pushRange(idx, result.records)
+            let records = try await read(opIsolation) { transaction, snapshot in
+                try await readRange(
+                    transaction,
+                    begin: .firstGreaterOrEqual(prefix),
+                    end: .firstGreaterOrEqual(try FDB.strinc(prefix)),
+                    limit: limit,
+                    reverse: reverse,
+                    snapshot: snapshot
+                )
+            }
+            pushRange(idx, records)
 
         case "GET_RANGE_SELECTOR":
-            // Python pops 10 parameters: begin_key, begin_or_equal, begin_offset, end_key, end_or_equal, end_offset, limit, reverse, mode, prefix
-            // Go pops in reverse order
-            let prefix = waitAndPop().item as! [UInt8]
-            _ = waitAndPop().item as! Int64 // Streaming mode, ignore for now
-            _ = (waitAndPop().item as! Int64) != 0
-            let limit = Int(waitAndPop().item as! Int64)
-            let endOffset = Int(waitAndPop().item as! Int64)
-            let endOrEqual = (waitAndPop().item as! Int64) != 0
-            let endKey = waitAndPop().item as! [UInt8]
-            let beginOffset = Int(waitAndPop().item as! Int64)
-            let beginOrEqual = (waitAndPop().item as! Int64) != 0
-            let beginKey = waitAndPop().item as! [UInt8]
+            // Top of stack first: BEGIN_KEY, BEGIN_OR_EQUAL, BEGIN_OFFSET, END_KEY, END_OR_EQUAL,
+            // END_OFFSET, LIMIT, REVERSE, STREAMING_MODE, PREFIX
+            let beginKey = await popBytes()
+            let beginOrEqual = (await popInt()) != 0
+            let beginOffset = Int(await popInt())
+            let endKey = await popBytes()
+            let endOrEqual = (await popInt()) != 0
+            let endOffset = Int(await popInt())
+            let limit = Int(await popInt())
+            let reverse = (await popInt()) != 0
+            _ = await waitAndPop() // STREAMING_MODE: not supported by the bindings yet
+            let prefix = await popBytes()
 
             let beginSelector = FDB.KeySelector(key: beginKey, orEqual: beginOrEqual, offset: beginOffset)
             let endSelector = FDB.KeySelector(key: endKey, orEqual: endOrEqual, offset: endOffset)
-            let transaction = try currentTransaction()
-
-            let result = try await transaction.getRangeNative(
-                beginSelector: beginSelector,
-                endSelector: endSelector,
-                limit: limit,
-                snapshot: false
-            )
-
-            pushRange(idx, result.records, prefixFilter: prefix)
+            let records = try await read(opIsolation) { transaction, snapshot in
+                try await readRange(
+                    transaction,
+                    begin: beginSelector,
+                    end: endSelector,
+                    limit: limit,
+                    reverse: reverse,
+                    snapshot: snapshot
+                )
+            }
+            pushRange(idx, records, prefixFilter: prefix)
 
         case "GET_ESTIMATED_RANGE_SIZE":
-            let endKey = waitAndPop().item as! [UInt8]
-            let beginKey = waitAndPop().item as! [UInt8]
+            let beginKey = await popBytes()
+            let endKey = await popBytes()
             let transaction = try currentTransaction()
 
             _ = try await transaction.getEstimatedRangeSizeBytes(beginKey: beginKey, endKey: endKey)
-            store(idx, Array("GOT_ESTIMATED_RANGE_SIZE".utf8))
+            store(idx, toBytes("GOT_ESTIMATED_RANGE_SIZE"))
 
         case "GET_RANGE_SPLIT_POINTS":
-            let chunkSize = Int(waitAndPop().item as! Int64)
-            let endKey = waitAndPop().item as! [UInt8]
-            let beginKey = waitAndPop().item as! [UInt8]
+            let beginKey = await popBytes()
+            let endKey = await popBytes()
+            let chunkSize = Int(await popInt())
             let transaction = try currentTransaction()
 
             _ = try await transaction.getRangeSplitPoints(beginKey: beginKey, endKey: endKey, chunkSize: chunkSize)
-            store(idx, Array("GOT_RANGE_SPLIT_POINTS".utf8))
+            store(idx, toBytes("GOT_RANGE_SPLIT_POINTS"))
 
         case "CLEAR":
-            let key = waitAndPop().item as! [UInt8]
-            let transaction = try currentTransaction()
-            transaction.clear(key: key)
+            let key = await popBytes()
+            try await mutate(idx, opIsolation) { $0.clear(key: key) }
 
         case "CLEAR_RANGE":
-            let beginKey = waitAndPop().item as! [UInt8]
-            let endKey = waitAndPop().item as! [UInt8]
-            let transaction = try currentTransaction()
-            transaction.clearRange(beginKey: beginKey, endKey: endKey)
+            let beginKey = await popBytes()
+            let endKey = await popBytes()
+            try await mutate(idx, opIsolation) { $0.clearRange(beginKey: beginKey, endKey: endKey) }
 
         case "CLEAR_RANGE_STARTS_WITH":
-            let prefix = waitAndPop().item as! [UInt8]
-            let transaction = try currentTransaction()
-            var endKey = prefix
-            endKey.append(0xFF)
-            transaction.clearRange(beginKey: prefix, endKey: endKey)
+            let prefix = await popBytes()
+            try await mutate(idx, opIsolation) { $0.clearRange(beginKey: prefix, endKey: try FDB.strinc(prefix)) }
 
         case "ATOMIC_OP":
-            // Python order: opType, key, value = inst.pop(3)
-            let param = waitAndPop().item as! [UInt8] // value/param
-            let key = waitAndPop().item as! [UInt8] // key
-            let opType = waitAndPop().item as! [UInt8] // opType
-            let transaction = try currentTransaction()
+            // Top of stack first: OPTYPE, KEY, VALUE
+            let opType = String(bytes: await popBytes(), encoding: .utf8) ?? ""
+            let key = await popBytes()
+            let param = await popBytes()
 
-            // Convert opType string to MutationType
-            let opTypeString = String(bytes: opType, encoding: .utf8) ?? ""
             let mutationType: FDB.MutationType
-            switch opTypeString {
-            case "ADD":
-                mutationType = .add
-            case "BIT_AND":
-                mutationType = .bitAnd
-            case "BIT_OR":
-                mutationType = .bitOr
-            case "BIT_XOR":
-                mutationType = .bitXor
-            default:
-                mutationType = .add // Default fallback
+            switch opType {
+            case "ADD": mutationType = .add
+            case "BIT_AND": mutationType = .bitAnd
+            case "BIT_OR": mutationType = .bitOr
+            case "BIT_XOR": mutationType = .bitXor
+            case "APPEND_IF_FITS": mutationType = .appendIfFits
+            case "MAX": mutationType = .max
+            case "MIN": mutationType = .min
+            case "SET_VERSIONSTAMPED_KEY": mutationType = .setVersionstampedKey
+            case "SET_VERSIONSTAMPED_VALUE": mutationType = .setVersionstampedValue
+            case "BYTE_MIN": mutationType = .byteMin
+            case "BYTE_MAX": mutationType = .byteMax
+            case "COMPARE_AND_CLEAR": mutationType = .compareAndClear
+            default: fatalError("Unknown atomic operation type: \(opType)")
             }
-
-            transaction.atomicOp(key: key, param: param, mutationType: mutationType)
+            try await mutate(idx, opIsolation) { $0.atomicOp(key: key, param: param, mutationType: mutationType) }
 
         case "SET_READ_VERSION":
-            let version = waitAndPop().item as! Int64
             let transaction = try currentTransaction()
-            transaction.setReadVersion(version)
+            transaction.setReadVersion(lastVersion)
 
         case "GET_COMMITTED_VERSION":
             let transaction = try currentTransaction()
             lastVersion = try transaction.getCommittedVersion()
-            store(idx, Array("GOT_COMMITTED_VERSION".utf8))
+            store(idx, toBytes("GOT_COMMITTED_VERSION"))
 
         case "GET_APPROXIMATE_SIZE":
             let transaction = try currentTransaction()
             _ = try await transaction.getApproximateSize()
-            store(idx, Array("GOT_APPROXIMATE_SIZE".utf8))
+            store(idx, toBytes("GOT_APPROXIMATE_SIZE"))
 
         case "GET_VERSIONSTAMP":
+            // `getVersionstamp()` requests the versionstamp when it starts running, but it only
+            // returns once the transaction has committed, which happens in a later instruction.
+            // So the call has to be started now (running synchronously up to the point where it
+            // first suspends) and only waited on when the item is popped.
+            // See: https://github.com/FoundationDB/fdb-swift-bindings/issues/34
             let transaction = try currentTransaction()
-            if let versionstamp = try await transaction.getVersionstamp() {
-                store(idx, versionstamp)
-            } else {
-                store(idx, Array("RESULT_NOT_PRESENT".utf8))
-            }
+            let versionstamp = startImmediately { try await transaction.getVersionstamp() }
+            store(idx, PendingFuture(wait: { try await versionstamp.value }))
 
-        case "READ_CONFLICT_RANGE":
-            let endKey = waitAndPop().item as! [UInt8]
-            let beginKey = waitAndPop().item as! [UInt8]
+        case "READ_CONFLICT_RANGE", "WRITE_CONFLICT_RANGE":
+            let beginKey = await popBytes()
+            let endKey = await popBytes()
             let transaction = try currentTransaction()
-            try transaction.addConflictRange(beginKey: beginKey, endKey: endKey, type: .read)
+            try transaction.addConflictRange(
+                beginKey: beginKey, endKey: endKey, type: op == "READ_CONFLICT_RANGE" ? .read : .write
+            )
+            store(idx, toBytes("SET_CONFLICT_RANGE"))
 
-        case "WRITE_CONFLICT_RANGE":
-            let endKey = waitAndPop().item as! [UInt8]
-            let beginKey = waitAndPop().item as! [UInt8]
+        case "READ_CONFLICT_KEY", "WRITE_CONFLICT_KEY":
+            let key = await popBytes()
             let transaction = try currentTransaction()
-            try transaction.addConflictRange(beginKey: beginKey, endKey: endKey, type: .write)
-
-        case "READ_CONFLICT_KEY":
-            let key = waitAndPop().item as! [UInt8]
-            let transaction = try currentTransaction()
-            // For a single key, create a range [key, key+\x00)
-            var endKey = key
-            endKey.append(0x00)
-            try transaction.addConflictRange(beginKey: key, endKey: endKey, type: .read)
-
-        case "WRITE_CONFLICT_KEY":
-            let key = waitAndPop().item as! [UInt8]
-            let transaction = try currentTransaction()
-            // For a single key, create a range [key, key+\x00)
-            var endKey = key
-            endKey.append(0x00)
-            try transaction.addConflictRange(beginKey: key, endKey: endKey, type: .write)
+            // For a single key, the conflict range is [key, key + \x00)
+            // Replace with helper methods once we have them.
+            // See: https://github.com/FoundationDB/fdb-swift-bindings/issues/35
+            try transaction.addConflictRange(
+                beginKey: key, endKey: key + [0x00], type: op == "READ_CONFLICT_KEY" ? .read : .write
+            )
+            store(idx, toBytes("SET_CONFLICT_KEY"))
 
         case "DISABLE_WRITE_CONFLICT":
             // Not directly available in Swift bindings, could use transaction option
@@ -510,214 +684,139 @@ class StackMachine {
             try transaction.setOption(to: nil, forOption: .nextWriteNoWriteConflictRange)
 
         case "TUPLE_PACK":
-            let numElements = waitAndPop().item as! Int64
-            var elements: [any TupleElement] = []
-
-            for _ in 0 ..< numElements {
-                let item = waitAndPop().item
-                if let bytes = item as? [UInt8] {
-                    elements.append(bytes)
-                } else if let string = item as? String {
-                    elements.append(string)
-                } else if let int = item as? Int64 {
-                    elements.append(int)
-                } else {
-                    // Convert to bytes as fallback
-                    let fallbackBytes = Array("UNKNOWN_TYPE".utf8)
-                    elements.append(fallbackBytes)
-                }
-            }
-
-            let tuple = Tuple(elements.reversed()) // Reverse because we popped in reverse order
-            store(idx, tuple.encode())
+            let count = Int(await popInt())
+            store(idx, Tuple(await popTupleElements(count)).encode())
 
         case "TUPLE_PACK_WITH_VERSIONSTAMP":
-            // Python order: prefix, count, items
-            let prefix = waitAndPop().item as! [UInt8]
-            let numElements = waitAndPop().item as! Int64
-            var elements: [any TupleElement] = []
-
-            for _ in 0 ..< numElements {
-                let item = waitAndPop().item
-                if let bytes = item as? [UInt8] {
-                    elements.append(bytes)
-                } else if let string = item as? String {
-                    elements.append(string)
-                } else if let int = item as? Int64 {
-                    elements.append(int)
-                } else {
-                    let fallbackBytes = Array("UNKNOWN_TYPE".utf8)
-                    elements.append(fallbackBytes)
-                }
+            // Top of stack first: PREFIX, N, then N items
+            let prefix = await popBytes()
+            let count = Int(await popInt())
+            let tuple = Tuple(await popTupleElements(count))
+            switch tuple.countIncompleteVersionstamps() {
+            case 0:
+                store(idx, toBytes("ERROR: NONE"))
+            case 1:
+                store(idx, toBytes("OK"))
+                store(idx, try tuple.encodeWithVersionstamp(prefix: prefix))
+            default:
+                store(idx, toBytes("ERROR: MULTIPLE"))
             }
 
-            // For now, treat like regular TUPLE_PACK since versionstamp handling is complex
-            let tuple = Tuple(elements.reversed())
-            var result = prefix
-            result.append(contentsOf: tuple.encode())
-            store(idx, result)
-
         case "TUPLE_UNPACK":
-            let encodedTuple = waitAndPop().item as! [UInt8]
-            do {
-                let elements = try Tuple.decode(from: encodedTuple)
-                for element in elements.reversed() { // Reverse to match stack order
-                    if let bytes = element as? [UInt8] {
-                        store(idx, bytes)
-                    } else if let string = element as? String {
-                        store(idx, Array(string.utf8))
-                    } else if let int = element as? Int64 {
-                        store(idx, int)
-                    } else {
-                        store(idx, Array("UNKNOWN_TYPE".utf8))
-                    }
-                }
-            } catch {
-                store(idx, Array("INVALID_TUPLE".utf8))
+            // Each element is pushed as its own packed one-element tuple.
+            for element in try Tuple.decode(from: await popBytes()).elements {
+                store(idx, Tuple([element]).encode())
             }
 
         case "TUPLE_SORT":
-            let numTuples = waitAndPop().item as! Int64
-            var tuples: [[UInt8]] = []
-
-            for _ in 0 ..< numTuples {
-                tuples.append(waitAndPop().item as! [UInt8])
+            let count = Int(await popInt())
+            var tuples: [FDB.Bytes] = []
+            for _ in 0 ..< count {
+                tuples.append(await popBytes())
             }
-
             tuples.sort { $0.lexicographicallyPrecedes($1) }
-
             for tuple in tuples {
                 store(idx, tuple)
             }
 
         case "TUPLE_RANGE":
-            let numElements = waitAndPop().item as! Int64
-            var elements: [any TupleElement] = []
-
-            for _ in 0 ..< numElements {
-                let item = waitAndPop().item
-                if let bytes = item as? [UInt8] {
-                    elements.append(bytes)
-                } else if let string = item as? String {
-                    elements.append(string)
-                } else if let int = item as? Int64 {
-                    elements.append(int)
-                }
-            }
-
-            let tuple = Tuple(elements.reversed())
-            let prefix = tuple.encode()
-
-            // Create range: prefix to prefix + [0xFF]
-            var endKey = prefix
-            endKey.append(0xFF)
-
-            store(idx, prefix)
-            store(idx, endKey)
+            let count = Int(await popInt())
+            let packed = Tuple(await popTupleElements(count)).encode()
+            store(idx, packed + [0x00])
+            store(idx, packed + [0xFF])
 
         case "ENCODE_FLOAT":
-            let floatValue = Float(waitAndPop().item as! Int64) // Convert from int representation
-            let data = withUnsafeBytes(of: floatValue.bitPattern) { Array($0) }
-            store(idx, data)
+            // The argument is the big-endian IEEE-754 representation; push the float element.
+            let bits = await popBytes().reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            store(idx, TupleElement.float(Float(bitPattern: bits)))
 
         case "ENCODE_DOUBLE":
-            let doubleValue = Double(waitAndPop().item as! Int64) // Convert from int representation
-            let data = withUnsafeBytes(of: doubleValue.bitPattern) { Array($0) }
-            store(idx, data)
+            let bits = await popBytes().reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+            store(idx, TupleElement.double(Double(bitPattern: bits)))
 
         case "DECODE_FLOAT":
-            let data = waitAndPop().item as! [UInt8]
-            if data.count >= 4 {
-                let floatValue = data.withUnsafeBytes { $0.load(as: Float.self) }
-                store(idx, Int64(floatValue.bitPattern))
-            } else {
-                store(idx, Int64(0))
+            guard case let .float(value) = await waitAndPop().item else {
+                fatalError("DECODE_FLOAT expects a float")
             }
+            store(idx, withUnsafeBytes(of: value.bitPattern.bigEndian) { Array($0) })
 
         case "DECODE_DOUBLE":
-            let data = waitAndPop().item as! [UInt8]
-            if data.count >= 8 {
-                let doubleValue = data.withUnsafeBytes { $0.load(as: Double.self) }
-                store(idx, Int64(doubleValue.bitPattern))
-            } else {
-                store(idx, Int64(0))
+            guard case let .double(value) = await waitAndPop().item else {
+                fatalError("DECODE_DOUBLE expects a double")
             }
+            store(idx, withUnsafeBytes(of: value.bitPattern.bigEndian) { Array($0) })
 
         case "WAIT_FUTURE":
-            // In async context, futures are automatically awaited, just pass through the item
-            let oldIdx = stack.count > 0 ? stack.last!.idx : idx
-            let item = waitAndPop().item
-            store(oldIdx, item)
+            // Waits on the top item (if it is a future) and pushes it back with its instruction number.
+            let entry = await waitAndPop()
+            store(entry.idx, entry.item)
 
         case "START_THREAD":
-            // Threading not supported in current implementation, just consume the instruction
-            _ = waitAndPop().item
-            // Could implement this with Task.detached in the future
+            // A new stack machine on the same database with independent state, run concurrently.
+            let threadPrefix = await popBytes()
+            let database = self.database
+            let verbose = self.verbose
+            threads.addTask {
+                let machine = StackMachine(prefix: threadPrefix, database: database, verbose: verbose)
+                try await machine.run()
+            }
 
         case "WAIT_EMPTY":
-            // Wait until stack is empty - already satisfied since we process sequentially
-            break
+            // Poll until no keys with the given prefix remain.
+            let waitPrefix = await popBytes()
+            while true {
+                let isEmpty = try await database.withTransaction { transaction in
+                    for try await _ in transaction.getRange(begin: waitPrefix, end: try FDB.strinc(waitPrefix)) {
+                        return false
+                    }
+                    return true
+                }
+                if isEmpty { break }
+                try Task.checkCancellation()
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            store(idx, toBytes("WAITED_FOR_EMPTY"))
 
-        case "UNIT_TESTS": // TODO:
-            store(idx, Array("UNIT_TESTS_COMPLETED".utf8))
+        case "UNIT_TESTS":
+            // Nothing to run yet. Like the other bindings, this pushes nothing onto the stack.
+            break
 
         default:
             fatalError("Unhandled operation: \(op)")
-        }
-
-        if verbose {
-            print("        -> [\(stack.map { "\($0.item)" }.joined(separator: ", "))] (\(stack.count))")
-            print()
         }
     }
 
     // Main run function - equivalent to Go's Run()
     func run() async throws {
         // Read instructions from database using the prefix, like Go version
-        let instructions = try await database.withTransaction { transaction -> [(key: [UInt8], value: [UInt8])] in
-            // Create range starting with our prefix
-            let prefixTuple = Tuple([prefix])
-            let beginKey = prefixTuple.encode()
-            let endKey = beginKey + [0xFF] // Simple range end
-
-            let result = try await transaction.getRangeNative(
-                beginKey: beginKey,
-                endKey: endKey,
+        // The instructions live in the tuple range of the prefix: (prefix, ...)
+        let prefixKey = Tuple(prefix).encode()
+        let instructions = try await database.withTransaction { transaction in
+            try await readRange(
+                transaction,
+                begin: .firstGreaterOrEqual(prefixKey + [0x00]),
+                end: .firstGreaterOrEqual(prefixKey + [0xFF]),
                 limit: 0,
+                reverse: false,
                 snapshot: false
             )
-
-            return result.records
         }
 
         if verbose {
             print("Found \(instructions.count) instructions")
         }
 
-        // Process each instruction
-        for (i, (_, value)) in instructions.enumerated() {
-            // Unpack the instruction tuple from the value
-            let elements = try Tuple.decode(from: value)
-
-            // Convert tuple elements to array for processing
-            var instruction: [Any] = []
-            for element in elements {
-                if let stringElement = element as? String {
-                    instruction.append(stringElement)
-                } else if let bytesElement = element as? [UInt8] {
-                    instruction.append(bytesElement)
-                } else if let intElement = element as? Int64 {
-                    instruction.append(intElement)
-                } else {
-                    instruction.append(element)
-                }
+        // Stack machines started by START_THREAD run as children of this group, so they are
+        // awaited (and cancelled if this machine fails) when the group ends.
+        try await withThrowingTaskGroup(of: Void.self) { threads in
+            for (i, (_, value)) in instructions.enumerated() {
+                // Unpack the instruction tuple from the value. Strings, byte strings and integers are
+                // kept as native values; everything else stays a TupleElement.
+                let instruction: Tuple = try Tuple.decode(from: value)
+                try await processInstruction(i, instruction, threads: &threads)
             }
 
-            if verbose {
-                print("Instruction \(i): \(instruction)")
-            }
-
-            try await processInstruction(i, instruction)
+            try await threads.waitForAll()
         }
 
         print("StackTester completed successfully with \(instructions.count) instructions")

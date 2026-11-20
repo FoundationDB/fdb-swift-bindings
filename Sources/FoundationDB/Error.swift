@@ -27,6 +27,7 @@ enum FDBErrorCode: Int32, CaseIterable {
     case transactionCancelled = 1025
     case transactionTimedOut = 1031
     case processBehind = 1037
+    case operationCancelled = 1101
     case tagThrottled = 1213
     case internalError = 2000
     case networkError = 2201
