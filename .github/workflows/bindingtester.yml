@@ -5,6 +5,10 @@ name: Binding Tester
 # generated in a loop until a time or failure limit is hit; any failing seed
 # fails the job. See https://github.com/FoundationDB/fdb-swift-bindings/issues/27
 #
+# On pull requests, a deterministic subset runs instead: the scripted test plus the
+# non-concurrent `api` configuration with seeds derived from a fixed meta-seed, so that any failure
+# is reproducible rather than a product of random seed selection.
+#
 # Note: the directory layer tests are skipped until the Swift bindings have a
 # directory layer (https://github.com/FoundationDB/fdb-swift-bindings/issues/18),
 # so a green run does not cover them.
@@ -16,7 +20,7 @@ on:
         description: "FoundationDB release (default: 8.0.0)"
         type: string
       time-limit-minutes:
-        description: "Time limit in minutes (default: 60; max: 90)"
+        description: "Time limit in minutes (default: 60; max: 90; ignored on pull requests)"
         type: string
       max-failures:
         description: "Maximum number of failures (default: 5)"
@@ -29,38 +33,67 @@ on:
         description: "Optional: seed for the first run (to reproduce a failure); requires config"
         default: ""
         type: string
+  pull_request:
   schedule:
     - cron: "0 8 * * *" # daily at 08:00 UTC
 
 permissions:
   contents: read
 
-# Runs are long, so queue behind a running one instead of cancelling it.
+# Scheduled/manual runs are long, so queue behind a running one instead of cancelling it.
+# Superseded PR runs are cancelled, though.
 # (GitHub keeps only one pending run per group; a newer pending run replaces an older one.)
 concurrency:
   group: bindingtester-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   bindingtester:
     name: Swift vs Java
     # Only run on schedule in the upstream repository; forks can still dispatch manually.
     if: github.event_name != 'schedule' || github.repository == 'FoundationDB/fdb-swift-bindings'
-    # Pinned to 24.04 for now because of https://github.com/swift-actions/setup-swift/issues/805
+    # The setup-swift action supports Ubuntu 22.04 and 24.04 only; `ubuntu-latest` is moving to 26.04.
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
       # Defaults live here (and only here): `inputs` is empty on scheduled runs, so the
       # fallbacks are needed, and input `default:`s would just duplicate them.
       FDB_VERSION: ${{ inputs.fdb-version || '8.0.0' }}
-      SWIFT_VERSION: "6.2"
+      SWIFT_VERSION: "6.4.2"
       TIME_LIMIT_MINUTES: ${{ inputs.time-limit-minutes || '60' }}
       MAX_FAILURES: ${{ inputs.max-failures || '5' }}
       START_SEED: ${{ inputs.seed || '' }}
       ONLY_CONFIG: ${{ inputs.config || '' }}
       FDB_SRC: ${{ github.workspace }}/fdb-src
+      # Pull requests draw their seeds from this fixed meta-seed (via a seeded PRNG in
+      # bindingtester_loop.py), so every PR runs the same sequence of seeds and failures
+      # reproduce. A fixed number of seeds is run (rather than for a fixed time) so that machine
+      # speed doesn't change which tests run. The seeds used are printed in the log and in each
+      # failure's repro command.
+      PR_META_SEED: "266034925" # 0x0fdb5eed
+      PR_NUM_SEEDS: "100"
+      IS_PR: ${{ github.event_name == 'pull_request' }}
 
     steps:
+    - name: Report run parameters
+      run: |
+        # Surface the effective parameters (inputs or defaults) on the run summary page.
+        {
+          echo "## bindingtester parameters"
+          echo ""
+          echo "| Parameter | Value |"
+          echo "|---|---|"
+          echo "| FoundationDB version | \`${FDB_VERSION}\` |"
+          echo "| Time limit (minutes) | \`${TIME_LIMIT_MINUTES}\` |"
+          echo "| Max failures | \`${MAX_FAILURES}\` |"
+          echo "| Config | \`${ONLY_CONFIG:-all}\` |"
+          echo "| Starting seed | \`${START_SEED:-random}\` |"
+          if [ "${IS_PR}" = true ]; then
+            echo "| Mode | deterministic (scripted + \`api\`, ${PR_NUM_SEEDS} seeds from meta-seed \`${PR_META_SEED}\`) |"
+          fi
+          echo ""
+        } >> "${GITHUB_STEP_SUMMARY}"
+
     - name: Check time limit
       run: |
         # The job times out at 150 minutes; leave room for setup and one in-flight run.
@@ -87,9 +120,9 @@ jobs:
         fdb_version: ${{ env.FDB_VERSION }}
 
     - name: Setup Swift
-      uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
+      uses: ./.github/actions/setup-swift
       with:
-        swift-version: "${{ env.SWIFT_VERSION }}"
+        swift_version: ${{ env.SWIFT_VERSION }}
 
     - name: Build Swift stack tester
       run: |
@@ -133,6 +166,12 @@ jobs:
           --test-name scripted --cluster-file "${CLUSTER_FILE}"
 
     - name: Run bindingtester loop (Swift vs Java)
+      # On pull requests, don't fail the job when the bindingtester fails. The Swift
+      # bindings currently have too many known failures for this to be a reliable signal
+      # on PRs, so it is informational only (failures still show up as annotations, in the
+      # run summary, and in the uploaded logs). Scheduled and manual runs still fail.
+      # TODO: remove this once the tester is reliable enough to gate PRs.
+      continue-on-error: ${{ github.event_name == 'pull_request' }}
       env:
         CLUSTER_FILE: ${{ steps.fdb.outputs.cluster_file }}
       run: |
@@ -142,8 +181,14 @@ jobs:
               --time-limit-minutes "${TIME_LIMIT_MINUTES}"
               --max-failures "${MAX_FAILURES}"
               --output-dir bindingtester-results)
-        if [ -n "${START_SEED}" ]; then args+=(--seed "${START_SEED}"); fi
-        if [ -n "${ONLY_CONFIG}" ]; then args+=(--only "${ONLY_CONFIG}"); fi
+        if [ "${IS_PR}" = true ]; then
+          # Deterministic subset: non-concurrent `api` config only, seeds from a fixed meta-seed, a fixed number
+          # of them (the time limit is ignored). MAX_FAILURES still applies.
+          args+=(--only api --meta-seed "${PR_META_SEED}" --num-seeds "${PR_NUM_SEEDS}")
+        else
+          if [ -n "${START_SEED}" ]; then args+=(--seed "${START_SEED}"); fi
+          if [ -n "${ONLY_CONFIG}" ]; then args+=(--only "${ONLY_CONFIG}"); fi
+        fi
         python .github/scripts/bindingtester_loop.py "${args[@]}"
 
     - name: Upload results and failure logs

@@ -8,14 +8,14 @@ on:
 
 jobs:
   test:
-    # Pinned to 24.04 for now because of https://github.com/swift-actions/setup-swift/issues/805
+    # The setup-swift action supports Ubuntu 22.04 and 24.04 only; `ubuntu-latest` is moving to 26.04.
     runs-on: ubuntu-24.04
     strategy:
       matrix:
         fdb-version:
           - "7.3.43"
         swift-version:
-          - "6.2"
+          - "6.4.2"
 
     name: FDB/Swift Bindings - ${{ matrix.fdb-version }} (Swift ${{ matrix.swift-version }})
 
@@ -29,9 +29,9 @@ jobs:
         fdb_version: ${{ matrix.fdb-version }}
 
     - name: Setup Swift
-      uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
+      uses: ./.github/actions/setup-swift
       with:
-        swift-version: "${{ matrix.swift-version }}"
+        swift_version: ${{ matrix.swift-version }}
 
     - name: Build Bindings
       run: swift build
