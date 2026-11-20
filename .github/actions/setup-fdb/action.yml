@@ -40,6 +40,7 @@ runs:
           if grep -q "The database is available" <<<"${status}"; then healthy=true; break; fi
           sleep 2
         done
-        fdbcli --exec status --timeout 10
+        # Write out final database status so that we have that in the logs (especially if things fail)
+        fdbcli --exec status --timeout 10 || true
         if [ "${healthy}" != true ]; then echo "::error::FoundationDB did not become available"; exit 1; fi
         echo "cluster_file=/etc/foundationdb/fdb.cluster" >> "${GITHUB_OUTPUT}"

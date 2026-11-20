@@ -61,6 +61,22 @@ jobs:
       FDB_SRC: ${{ github.workspace }}/fdb-src
 
     steps:
+    - name: Report run parameters
+      run: |
+        # Surface the effective parameters (inputs or defaults) on the run summary page.
+        {
+          echo "## bindingtester parameters"
+          echo ""
+          echo "| Parameter | Value |"
+          echo "|---|---|"
+          echo "| FoundationDB version | \`${FDB_VERSION}\` |"
+          echo "| Time limit (minutes) | \`${TIME_LIMIT_MINUTES}\` |"
+          echo "| Max failures | \`${MAX_FAILURES}\` |"
+          echo "| Config | \`${ONLY_CONFIG:-all}\` |"
+          echo "| Starting seed | \`${START_SEED:-random}\` |"
+          echo ""
+        } >> "${GITHUB_STEP_SUMMARY}"
+
     - name: Check time limit
       run: |
         # The job times out at 150 minutes; leave room for setup and one in-flight run.

@@ -135,8 +135,14 @@ def run_command(cmd: List[str], timeout_s: float, log_path: Path) -> Tuple[int, 
     with open(log_path, "w") as log:
         log.write("$ " + shlex.join(cmd) + "\n\n")
         log.flush()
-        # New session so that on timeout we can kill the bindingtester *and* its
-        # child tester processes.
+        # bindingtester.py spawns the tester binaries (Swift and Java) as child
+        # processes, and on timeout or interruption we need to kill all of them.
+        # `proc.kill()` would only signal the bindingtester itself, leaving its
+        # children running as orphans. `os.killpg` kills a whole process group,
+        # but by default the child shares *our* group, so using it would kill
+        # this script too. start_new_session=True puts the bindingtester (and
+        # the children it spawns, which inherit its group) in a fresh group
+        # that we can safely killpg without affecting ourselves.
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             return proc.wait(timeout=timeout_s), ""
