@@ -5,6 +5,10 @@ name: Binding Tester
 # generated in a loop until a time or failure limit is hit; any failing seed
 # fails the job. See https://github.com/FoundationDB/fdb-swift-bindings/issues/27
 #
+# On pull requests, a deterministic subset runs instead: the scripted test plus the
+# non-concurrent `api` configuration with seeds derived from a fixed meta-seed, so that any failure
+# is reproducible rather than a product of random seed selection.
+#
 # Note: the directory layer tests are skipped until the Swift bindings have a
 # directory layer (https://github.com/FoundationDB/fdb-swift-bindings/issues/18),
 # so a green run does not cover them.
@@ -16,7 +20,7 @@ on:
         description: "FoundationDB release (default: 8.0.0)"
         type: string
       time-limit-minutes:
-        description: "Time limit in minutes (default: 60; max: 90)"
+        description: "Time limit in minutes (default: 60; max: 90; ignored on pull requests)"
         type: string
       max-failures:
         description: "Maximum number of failures (default: 5)"
@@ -29,17 +33,19 @@ on:
         description: "Optional: seed for the first run (to reproduce a failure); requires config"
         default: ""
         type: string
+  pull_request:
   schedule:
     - cron: "0 8 * * *" # daily at 08:00 UTC
 
 permissions:
   contents: read
 
-# Runs are long, so queue behind a running one instead of cancelling it.
+# Scheduled/manual runs are long, so queue behind a running one instead of cancelling it.
+# Superseded PR runs are cancelled, though.
 # (GitHub keeps only one pending run per group; a newer pending run replaces an older one.)
 concurrency:
   group: bindingtester-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   bindingtester:
@@ -59,6 +65,14 @@ jobs:
       START_SEED: ${{ inputs.seed || '' }}
       ONLY_CONFIG: ${{ inputs.config || '' }}
       FDB_SRC: ${{ github.workspace }}/fdb-src
+      # Pull requests draw their seeds from this fixed meta-seed (via a seeded PRNG in
+      # bindingtester_loop.py), so every PR runs the same sequence of seeds and failures
+      # reproduce. A fixed number of seeds is run (rather than for a fixed time) so that machine
+      # speed doesn't change which tests run. The seeds used are printed in the log and in each
+      # failure's repro command.
+      PR_META_SEED: "266034925" # 0x0fdb5eed
+      PR_NUM_SEEDS: "100"
+      IS_PR: ${{ github.event_name == 'pull_request' }}
 
     steps:
     - name: Report run parameters
@@ -74,6 +88,9 @@ jobs:
           echo "| Max failures | \`${MAX_FAILURES}\` |"
           echo "| Config | \`${ONLY_CONFIG:-all}\` |"
           echo "| Starting seed | \`${START_SEED:-random}\` |"
+          if [ "${IS_PR}" = true ]; then
+            echo "| Mode | deterministic (scripted + \`api\`, ${PR_NUM_SEEDS} seeds from meta-seed \`${PR_META_SEED}\`) |"
+          fi
           echo ""
         } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -158,8 +175,14 @@ jobs:
               --time-limit-minutes "${TIME_LIMIT_MINUTES}"
               --max-failures "${MAX_FAILURES}"
               --output-dir bindingtester-results)
-        if [ -n "${START_SEED}" ]; then args+=(--seed "${START_SEED}"); fi
-        if [ -n "${ONLY_CONFIG}" ]; then args+=(--only "${ONLY_CONFIG}"); fi
+        if [ "${IS_PR}" = true ]; then
+          # Deterministic subset: non-concurrent `api` config only, seeds from a fixed meta-seed, a fixed number
+          # of them (the time limit is ignored). MAX_FAILURES still applies.
+          args+=(--only api --meta-seed "${PR_META_SEED}" --num-seeds "${PR_NUM_SEEDS}")
+        else
+          if [ -n "${START_SEED}" ]; then args+=(--seed "${START_SEED}"); fi
+          if [ -n "${ONLY_CONFIG}" ]; then args+=(--only "${ONLY_CONFIG}"); fi
+        fi
         python .github/scripts/bindingtester_loop.py "${args[@]}"
 
     - name: Upload results and failure logs

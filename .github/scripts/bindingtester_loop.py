@@ -110,6 +110,14 @@ def parse_args(argv):
                    help="Where failure logs and results.json are written")
     p.add_argument("--seed", type=int, default=None,
                    help="Use this seed for the first run instead of a random one (to reproduce a failure)")
+    p.add_argument("--meta-seed", type=int, default=None,
+                   help="Draw each run's seed from a PRNG seeded with this meta-seed instead of "
+                        "from system entropy, so the sequence of seeds is the same every time. "
+                        "Incompatible with --seed")
+    p.add_argument("--num-seeds", type=int, default=None,
+                   help="With --meta-seed: run exactly this many seeds (stopping early only at the "
+                        "failure limit) and ignore the time limit, so the set of tests run does not "
+                        "depend on how fast they are")
     p.add_argument("--only", choices=[c.name for c in CONFIGS], default=None,
                    help="Restrict the loop to one test configuration")
     p.add_argument("--include-directory", action="store_true",
@@ -124,6 +132,12 @@ def parse_args(argv):
         p.error("--time-limit-minutes must be positive")
     if args.max_failures < 1:
         p.error("--max-failures must be at least 1")
+    if args.meta_seed is not None and args.seed is not None:
+        p.error("--meta-seed and --seed are mutually exclusive")
+    if args.num_seeds is not None and args.meta_seed is None:
+        p.error("--num-seeds requires --meta-seed")
+    if args.num_seeds is not None and args.num_seeds < 1:
+        p.error("--num-seeds must be at least 1")
     if args.seed is not None and args.only is None:
         # The seed is only meaningful for the configuration that produced it.
         p.error("--seed requires --only so the failing configuration is reproduced")
@@ -191,6 +205,15 @@ def main(argv) -> int:
         return 2
     next_seed = args.seed
 
+    def command_for(config: TestConfig, seed: int) -> List[str]:
+        cmd = base + ["--test-name", config.test_name, "--num-ops", str(config.num_ops),
+                      "--seed", str(seed)]
+        if config.concurrency > 1:
+            cmd += ["--concurrency", str(config.concurrency)]
+        if config.compare:
+            cmd += ["--compare", args.reference]
+        return cmd
+
     def record(config: str, seed: Optional[int], cmd: List[str]) -> RunResult:
         start = time.monotonic()
         code, reason = run_command(cmd, run_timeout, scratch)
@@ -219,22 +242,39 @@ def main(argv) -> int:
 
     print("== enabled configurations: " + ", ".join(c.name for c in configs)
           + ("" if args.include_directory else " (directory tests skipped, see issue #18)"), flush=True)
-    print(f"== random loop: up to {args.time_limit_minutes} min / {args.max_failures} failures ==", flush=True)
+    if args.meta_seed is not None:
+        # A dedicated, seeded PRNG (not SystemRandom) so the same meta-seed always yields the
+        # same sequence of seeds. Only getrandbits is used, as its output is stable across
+        # Python versions. Each run's seed is printed, and appears in its repro command.
+        prng = random.Random(args.meta_seed)
+        next_random_seed = lambda: prng.getrandbits(32)
+        seed_source = f"seeds from meta-seed {args.meta_seed}"
+    else:
+        sysrandom = random.SystemRandom()
+        next_random_seed = lambda: sysrandom.getrandbits(32)
+        seed_source = "random seeds"
+    if args.num_seeds is not None:
+        limit = f"{args.num_seeds} runs"
+    else:
+        limit = f"{args.time_limit_minutes} min"
+    print(f"== loop ({seed_source}): up to {limit} / {args.max_failures} failures ==", flush=True)
     iteration = 0
-    stopped = "time limit"
+    stopped = "run count" if args.num_seeds is not None else "time limit"
+
+    def keep_going() -> bool:
+        if len(stats.failures) >= args.max_failures:
+            return False
+        if args.num_seeds is not None:
+            return iteration < args.num_seeds
+        return time.monotonic() < deadline
+
     try:
-        while time.monotonic() < deadline and len(stats.failures) < args.max_failures:
+        while keep_going():
             config = configs[iteration % len(configs)]
             iteration += 1
-            seed = next_seed if next_seed is not None else random.SystemRandom().randrange(0, 2**32)
+            seed = next_seed if next_seed is not None else next_random_seed()
             next_seed = None
-            cmd = base + ["--test-name", config.test_name, "--num-ops", str(config.num_ops),
-                          "--seed", str(seed)]
-            if config.concurrency > 1:
-                cmd += ["--concurrency", str(config.concurrency)]
-            if config.compare:
-                cmd += ["--compare", args.reference]
-            record(config.name, seed, cmd)
+            record(config.name, seed, command_for(config, seed))
         if len(stats.failures) >= args.max_failures:
             stopped = "failure limit"
     except BaseException:
